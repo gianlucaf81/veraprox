@@ -175,18 +175,31 @@ whiptail --backtitle "$WT_TITLE" --title "Conferma" --yesno "$SUMMARY
 Procedere con la creazione della VM?" 18 60 || exit 1
 
 # ------------------------------------------------
-# Download ISO Debian
+# Download ISO Debian 12
 # ------------------------------------------------
+DEBIAN_VERSION="12.13.0"
 ISO_PATH="/var/lib/vz/template/iso"
-ISO_FILE="$ISO_PATH/debian-12-amd64-netinst.iso"
+ISO_NAME="debian-${DEBIAN_VERSION}-amd64-netinst.iso"
+ISO_FILE="$ISO_PATH/$ISO_NAME"
+ISO_URL="https://cdimage.debian.org/cdimage/archive/${DEBIAN_VERSION}/amd64/iso-cd/${ISO_NAME}"
+ISO_CHECKSUM_URL="https://cdimage.debian.org/cdimage/archive/${DEBIAN_VERSION}/amd64/iso-cd/SHA256SUMS"
 
 if [ ! -f "$ISO_FILE" ]; then
-  msg_info "Download ISO Debian 12 netinst"
-  wget -q -P "$ISO_PATH" https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12-amd64-netinst.iso
-  msg_ok "ISO Debian 12 scaricata"
+  msg_info "Download ISO Debian ${DEBIAN_VERSION} netinst"
+  wget -q -P "$ISO_PATH" "$ISO_URL"
+  msg_ok "ISO Debian scaricata"
 else
   msg_ok "ISO Debian 12 già presente"
 fi
+
+msg_info "Verifica checksum ISO Debian"
+ISO_CHECKSUM_FILE=$(mktemp)
+wget -q -O "$ISO_CHECKSUM_FILE" "$ISO_CHECKSUM_URL"
+ISO_CHECKSUM_LINE=$(grep -F " $ISO_NAME" "$ISO_CHECKSUM_FILE" || true)
+rm -f "$ISO_CHECKSUM_FILE"
+[ -n "$ISO_CHECKSUM_LINE" ] || { msg_error "Checksum ISO Debian non trovato"; exit 1; }
+printf '%s\n' "$ISO_CHECKSUM_LINE" | (cd "$ISO_PATH" && sha256sum --check --status -)
+msg_ok "Checksum ISO Debian verificato"
 
 # ------------------------------------------------
 # Creazione VM
