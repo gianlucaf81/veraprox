@@ -32,7 +32,7 @@ Accedi alla shell dell'host Proxmox come `root`, scarica ed esegui lo script:
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/gianlucaf81/veraprox/main/create-veracrypt-vm.sh)"
 ```
 
-Completa le richieste a schermo, avvia la VM e installa Debian 12 dalla console Proxmox.
+Completa le richieste a schermo, avvia la VM e installa Debian 12 dalla console Proxmox. Nella schermata **Selezione del software**, deseleziona **Ambiente desktop Debian** e lascia selezionati solo **server SSH** e **utility di sistema standard**. In questo modo la VM resta senza interfaccia grafica.
 
 Dopo aver concluso l'installazione di Debian, spegni la VM, rimuovi l'ISO e imposta il disco come avvio predefinito:
 

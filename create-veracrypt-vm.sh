@@ -238,7 +238,9 @@ echo -e "${BL}Password Web:${CL}  $WEB_PASSWORD"
 echo
 echo -e "${YW}PROSSIMI PASSI:${CL}"
 echo "1. Avvia la VM:            qm start $VMID"
-echo "2. Installa Debian 12 dalla console Proxmox"
+echo "2. Installa Debian 12 senza desktop dalla console Proxmox"
+echo "   In 'Selezione del software', deseleziona 'Ambiente desktop Debian'."
+echo "   Lascia selezionati solo 'server SSH' e 'utility di sistema standard'."
 echo "3. Nella VM, esegui il post-install con curl:"
 printf '   USB_VENDOR=%q USB_PRODUCT=%q WEB_PASSWORD=%q INSTALL_FB=%q FB_PASSWORD=%q bash -c "$(curl -fsSL %q)"\n' \
   "$USB_VENDOR" "$USB_PRODUCT" "$WEB_PASSWORD" "$INSTALL_FB" "$FB_PASSWORD" "$RAW_URL"
