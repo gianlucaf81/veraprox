@@ -86,6 +86,11 @@ if ! command -v qm >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v pvesh >/dev/null 2>&1; then
+  msg_error "Il comando pvesh non è disponibile: impossibile assegnare automaticamente l'ID della VM."
+  exit 1
+fi
+
 if [ ! -t 0 ] || [ ! -t 1 ]; then
   msg_error "Serve una shell interattiva con terminale per mostrare le schermate di configurazione."
   exit 1
@@ -119,7 +124,7 @@ echo -e "${CL}"
 # ------------------------------------------------
 # Prompt parametri VM
 # ------------------------------------------------
-VMID=$(whiptail --backtitle "$WT_TITLE" --inputbox "ID VM" 8 58 "100" --title "Configurazione VM" 3>&1 1>&2 2>&3) || exit 1
+VMID=$(pvesh get /cluster/nextid)
 VMNAME=$(whiptail --backtitle "$WT_TITLE" --inputbox "Nome VM" 8 58 "veracrypt-secure" --title "Configurazione VM" 3>&1 1>&2 2>&3) || exit 1
 VMRAM=$(whiptail --backtitle "$WT_TITLE" --inputbox "RAM in MB" 8 58 "2048" --title "Configurazione VM" 3>&1 1>&2 2>&3) || exit 1
 VMCORES=$(whiptail --backtitle "$WT_TITLE" --inputbox "Cores CPU" 8 58 "2" --title "Configurazione VM" 3>&1 1>&2 2>&3) || exit 1
@@ -164,6 +169,7 @@ fi
 # Riepilogo di conferma
 # ------------------------------------------------
 SUMMARY="VMID: $VMID
+ID assegnato automaticamente dal cluster
 Nome: $VMNAME
 RAM: ${VMRAM}MB  |  Cores: $VMCORES  |  Disco: ${VMDISK}GB
 Bridge: $VMBRIDGE

@@ -6,6 +6,8 @@ Script per creare una VM Debian 12 su Proxmox VE destinata all'uso di VeraCrypt,
 
 `create-veracrypt-vm.sh`, da eseguire sull'host Proxmox, guida nella scelta delle risorse della VM, del bridge di rete e del dispositivo USB. Al termine mostra il comando da eseguire nella VM.
 
+L'ID della VM viene assegnato automaticamente al primo valore libero del cluster Proxmox.
+
 `post-install-veracrypt.sh`, da eseguire **all'interno della VM Debian 12**, installa:
 
 - VeraCrypt console per Debian 12 amd64;
