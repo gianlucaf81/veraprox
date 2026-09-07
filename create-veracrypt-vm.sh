@@ -203,8 +203,8 @@ echo
 echo -e "${YW}PROSSIMI PASSI:${CL}"
 echo "1. Avvia la VM:            qm start $VMID"
 echo "2. Installa Debian 12 dalla console Proxmox"
-echo "3. Nella VM, scarica ed esegui lo script post-install:"
-echo "   wget -O post-install-veracrypt.sh $RAW_URL"
-echo "   chmod +x post-install-veracrypt.sh"
-echo "   USB_VENDOR=$USB_VENDOR USB_PRODUCT=$USB_PRODUCT WEB_PASSWORD='$WEB_PASSWORD' INSTALL_FB=$INSTALL_FB FB_PASSWORD='$FB_PASSWORD' ./post-install-veracrypt.sh"
+echo "3. Nella VM, esegui il post-install con curl:"
+printf '   USB_VENDOR=%q USB_PRODUCT=%q WEB_PASSWORD=%q INSTALL_FB=%q FB_PASSWORD=%q bash -c "$(curl -fsSL %q)"\n' \
+  "$USB_VENDOR" "$USB_PRODUCT" "$WEB_PASSWORD" "$INSTALL_FB" "$FB_PASSWORD" "$RAW_URL"
+echo "   Se curl non è installato: apt update && apt install -y curl"
 echo

@@ -29,9 +29,7 @@ Ad ogni esecuzione il secondo script interroga la release stabile più recente n
 Accedi alla shell dell'host Proxmox come `root`, scarica ed esegui lo script:
 
 ```bash
-wget -O create-veracrypt-vm.sh https://raw.githubusercontent.com/gianlucaf81/veraprox/main/create-veracrypt-vm.sh
-chmod +x create-veracrypt-vm.sh
-./create-veracrypt-vm.sh
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/gianlucaf81/veraprox/main/create-veracrypt-vm.sh)"
 ```
 
 Completa le richieste a schermo, avvia la VM e installa Debian 12 dalla console Proxmox.
@@ -43,12 +41,12 @@ Accedi alla VM come `root` dopo l'installazione di Debian. Nella schermata final
 In alternativa, scarica lo script e passagli manualmente le variabili richieste:
 
 ```bash
-wget -O post-install-veracrypt.sh https://raw.githubusercontent.com/gianlucaf81/veraprox/main/post-install-veracrypt.sh
-chmod +x post-install-veracrypt.sh
-USB_VENDOR=0781 USB_PRODUCT=5583 WEB_PASSWORD='scegli-una-password-forte' INSTALL_FB=s FB_PASSWORD='scegli-un-altra-password-forte' ./post-install-veracrypt.sh
+USB_VENDOR=0781 USB_PRODUCT=5583 WEB_PASSWORD='scegli-una-password-forte' INSTALL_FB=s FB_PASSWORD='scegli-un-altra-password-forte' bash -c "$(curl -fsSL https://raw.githubusercontent.com/gianlucaf81/veraprox/main/post-install-veracrypt.sh)"
 ```
 
 Sostituisci `0781` e `5583` con il vendor/product ID del tuo dispositivo USB. Lo script di creazione della VM li rileva automaticamente.
+
+Se `curl` non è presente nella VM Debian, installalo prima con `apt update && apt install -y curl`.
 
 ## Accesso e uso
 
