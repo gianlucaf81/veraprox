@@ -34,6 +34,13 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/gianlucaf81/veraprox/mai
 
 Completa le richieste a schermo, avvia la VM e installa Debian 12 dalla console Proxmox.
 
+Dopo aver concluso l'installazione di Debian, spegni la VM, rimuovi l'ISO e imposta il disco come avvio predefinito:
+
+```bash
+qm set ID_DELLA_VM --delete ide2
+qm set ID_DELLA_VM --boot order=scsi0
+```
+
 ### 2. Completa l'installazione nella VM
 
 Accedi alla VM come `root` dopo l'installazione di Debian. Nella schermata finale dello script Proxmox troverai il comando già composto con l'identificativo USB e le opzioni scelte. Eseguilo nella VM.

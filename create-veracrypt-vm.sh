@@ -220,10 +220,10 @@ msg_info "Passthrough USB $USB_ID"
 qm set "$VMID" --usb0 host="$USB_ID" >/dev/null
 msg_ok "USB passthrough configurato"
 
-msg_info "Configurazione boot e guest agent"
-qm set "$VMID" --boot order=scsi0 >/dev/null
+msg_info "Configurazione boot da ISO e guest agent"
+qm set "$VMID" --boot order="ide2;scsi0" >/dev/null
 qm set "$VMID" --agent enabled=1 >/dev/null
-msg_ok "Boot e guest agent configurati"
+msg_ok "Boot da ISO e guest agent configurati"
 
 # ------------------------------------------------
 # Riepilogo finale
@@ -243,4 +243,7 @@ echo "3. Nella VM, esegui il post-install con curl:"
 printf '   USB_VENDOR=%q USB_PRODUCT=%q WEB_PASSWORD=%q INSTALL_FB=%q FB_PASSWORD=%q bash -c "$(curl -fsSL %q)"\n' \
   "$USB_VENDOR" "$USB_PRODUCT" "$WEB_PASSWORD" "$INSTALL_FB" "$FB_PASSWORD" "$RAW_URL"
 echo "   Se curl non è installato: apt update && apt install -y curl"
+echo "4. Dopo l'installazione, rimuovi l'ISO e avvia dal disco:"
+echo "   qm set $VMID --delete ide2"
+echo "   qm set $VMID --boot order=scsi0"
 echo
