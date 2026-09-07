@@ -66,7 +66,30 @@ msg_error() {
   printf "${BFR} ${CROSS} ${RD}%s${CL}\n" "$1"
 }
 
-trap 'msg_error "Uno step ha restituito un errore, uscita."; exit 1' ERR
+on_error() {
+  local exit_code=$1
+  local line_number=$2
+  local failed_command=$3
+  msg_error "Errore alla riga ${line_number} (codice ${exit_code}): ${failed_command}"
+  exit "$exit_code"
+}
+
+trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
+
+if [ "$(id -u)" -ne 0 ]; then
+  msg_error "Esegui lo script come root sull'host Proxmox."
+  exit 1
+fi
+
+if ! command -v qm >/dev/null 2>&1; then
+  msg_error "Il comando qm non è disponibile: esegui lo script sull'host Proxmox, non dentro una VM."
+  exit 1
+fi
+
+if [ ! -t 0 ] || [ ! -t 1 ]; then
+  msg_error "Serve una shell interattiva con terminale per mostrare le schermate di configurazione."
+  exit 1
+fi
 
 # ------------------------------------------------
 # Verifica whiptail
