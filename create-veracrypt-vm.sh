@@ -124,7 +124,8 @@ echo -e "${CL}"
 # ------------------------------------------------
 # Prompt parametri VM
 # ------------------------------------------------
-VMID=$(pvesh get /cluster/nextid)
+NEXT_VMID=$(pvesh get /cluster/nextid)
+VMID=$(whiptail --backtitle "$WT_TITLE" --inputbox "ID VM" 8 58 "$NEXT_VMID" --title "Configurazione VM" 3>&1 1>&2 2>&3) || exit 1
 VMNAME=$(whiptail --backtitle "$WT_TITLE" --inputbox "Nome VM" 8 58 "veracrypt-secure" --title "Configurazione VM" 3>&1 1>&2 2>&3) || exit 1
 VMRAM=$(whiptail --backtitle "$WT_TITLE" --inputbox "RAM in MB" 8 58 "2048" --title "Configurazione VM" 3>&1 1>&2 2>&3) || exit 1
 VMCORES=$(whiptail --backtitle "$WT_TITLE" --inputbox "Cores CPU" 8 58 "2" --title "Configurazione VM" 3>&1 1>&2 2>&3) || exit 1
@@ -169,7 +170,7 @@ fi
 # Riepilogo di conferma
 # ------------------------------------------------
 SUMMARY="VMID: $VMID
-ID assegnato automaticamente dal cluster
+ID proposto automaticamente dal cluster: $NEXT_VMID
 Nome: $VMNAME
 RAM: ${VMRAM}MB  |  Cores: $VMCORES  |  Disco: ${VMDISK}GB
 Bridge: $VMBRIDGE
