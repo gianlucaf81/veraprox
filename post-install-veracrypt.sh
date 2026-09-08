@@ -521,15 +521,34 @@ SVCEOF
 
 systemctl daemon-reload
 systemctl enable --now secure-webapp >/dev/null 2>&1
-msg_ok "Servizio secure-webapp attivo"
+
+WEBAPP_READY=false
+for _ in {1..10}; do
+  if systemctl is-active --quiet secure-webapp && curl -fsS --max-time 2 http://127.0.0.1:5000/ >/dev/null; then
+    WEBAPP_READY=true
+    break
+  fi
+  sleep 1
+done
+
+if [ "$WEBAPP_READY" != "true" ]; then
+  SERVICE_LOG=$(journalctl -u secure-webapp --no-pager -n 12 2>&1 || true)
+  msg_error "Il servizio web non risponde sulla porta 5000.\n\nUltimi messaggi del servizio:\n$SERVICE_LOG"
+  exit 1
+fi
+msg_ok "Servizio secure-webapp attivo e raggiungibile"
+
+VM_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}')
+VM_IP=${VM_IP:-$(hostname -I | awk '{print $1}')}
+VM_IP=${VM_IP:-"IP non rilevato"}
 
 # ------------------------------------------------
 # Riepilogo
 # ------------------------------------------------
-FINAL_MESSAGE="Installazione completata.\n\nInterfaccia VeraProx: http://IP-DELLA-VM:5000\nPassword web: $WEB_PASSWORD\n\nMount manuale: /usr/local/bin/mount-secure.sh\nSmontaggio manuale: /usr/local/bin/umount-secure.sh"
+FINAL_MESSAGE="Installazione completata.\n\nInterfaccia VeraProx: http://$VM_IP:5000\nPassword web: $WEB_PASSWORD\n\nMount manuale: /usr/local/bin/mount-secure.sh\nSmontaggio manuale: /usr/local/bin/umount-secure.sh"
 
 if [ "$INSTALL_FB" = "s" ]; then
-  FINAL_MESSAGE+="\n\nFileBrowser: http://IP-DELLA-VM:8080\nAccesso FileBrowser: admin / $FB_PASSWORD"
+  FINAL_MESSAGE+="\n\nFileBrowser: http://$VM_IP:8080\nAccesso FileBrowser: admin / $FB_PASSWORD"
 fi
 
 whiptail --title "$WT_TITLE" --msgbox "$FINAL_MESSAGE" 18 78
