@@ -119,6 +119,7 @@ if [ "$INSTALL_FB" != "s" ] && [ "$INSTALL_FB" != "n" ]; then
   exit 1
 fi
 
+FILEBROWSER_DB="/etc/filebrowser/filebrowser.db"
 VERACRYPT_RELEASE_API="https://api.github.com/repos/veracrypt/VeraCrypt/releases/latest"
 VERACRYPT_DEB_NAME=""
 
@@ -227,11 +228,20 @@ if [ "$INSTALL_FB" = "s" ]; then
   fi
 
   msg_info "Configurazione FileBrowser"
-  if ! filebrowser config init; then
+  mkdir -p /etc/filebrowser
+  chmod 700 /etc/filebrowser
+
+  if [ ! -f "$FILEBROWSER_DB" ] && ! filebrowser config init -d "$FILEBROWSER_DB"; then
     msg_error "Inizializzazione FileBrowser non riuscita"
     exit 1
   fi
-  if ! filebrowser users add admin "$FB_PASSWORD" --perm.admin; then
+
+  if filebrowser users find admin -d "$FILEBROWSER_DB" >/dev/null 2>&1; then
+    if ! filebrowser users update admin --password "$FB_PASSWORD" --perm.admin -d "$FILEBROWSER_DB"; then
+      msg_error "Aggiornamento dell'utente amministratore FileBrowser non riuscito"
+      exit 1
+    fi
+  elif ! filebrowser users add admin "$FB_PASSWORD" --perm.admin -d "$FILEBROWSER_DB"; then
     msg_error "Creazione dell'utente amministratore FileBrowser non riuscita"
     exit 1
   fi
@@ -265,7 +275,7 @@ unset PASSWORD
 if mountpoint -q /mnt/secure; then
     echo "Volume montato."
     if command -v filebrowser >/dev/null 2>&1; then
-        filebrowser -r /mnt/secure -a 0.0.0.0 -p 8080 &
+        filebrowser -d /etc/filebrowser/filebrowser.db -r /mnt/secure -a 0.0.0.0 -p 8080 &
         echo "FileBrowser su http://localhost:8080"
     fi
 else
@@ -310,6 +320,7 @@ app.secret_key = os.urandom(24)
 
 MOUNT_POINT = "/mnt/secure"
 FILEBROWSER_PORT = 8080
+FILEBROWSER_DB = "/etc/filebrowser/filebrowser.db"
 ADMIN_PASSWORD = "${WEB_PASSWORD}"
 
 def get_device():
@@ -482,7 +493,8 @@ def mount_volume():
     result = log_subprocess(f"veracrypt --mount {device} {MOUNT_POINT} --password='{password}' --non-interactive")
     if result.returncode == 0:
         if subprocess.run("command -v filebrowser", shell=True, capture_output=True).returncode == 0:
-            subprocess.Popen(['filebrowser', '-r', MOUNT_POINT, '-a', '0.0.0.0', '-p', str(FILEBROWSER_PORT)])
+            subprocess.Popen(['filebrowser', '-d', FILEBROWSER_DB, '-r', MOUNT_POINT,
+                              '-a', '0.0.0.0', '-p', str(FILEBROWSER_PORT)])
         time.sleep(2)
         add_log("FileBrowser avviato", "SUCCESS")
         return render_template_string(HTML, success="Volume montato con successo!", mounted=True,
