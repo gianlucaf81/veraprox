@@ -56,7 +56,15 @@ msg_error() {
   printf "${BFR} ${CROSS} ${RD}%s${CL}\n" "$1"
 }
 
-trap 'msg_error "Uno step ha restituito un errore, uscita."; exit 1' ERR
+on_error() {
+  local exit_code=$1
+  local line_number=$2
+  local failed_command=$3
+  msg_error "Errore alla riga ${line_number} (codice ${exit_code}): ${failed_command}"
+  exit "$exit_code"
+}
+
+trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
 
 if [ "$(id -u)" -ne 0 ]; then
   msg_error "Questo script deve essere eseguito come root."
@@ -122,7 +130,7 @@ apt update -qq && apt upgrade -y -qq
 msg_ok "Sistema aggiornato"
 
 msg_info "Installazione dipendenze"
-apt install -y -qq sudo curl wget usbutils secure-delete ntfs-3g fuse3 python3-flask python3-pip
+apt install -y -qq curl wget usbutils secure-delete ntfs-3g fuse3 python3-flask
 msg_ok "Dipendenze installate"
 
 # ------------------------------------------------
@@ -195,11 +203,39 @@ msg_ok "Regola udev applicata"
 # FileBrowser (opzionale)
 # ------------------------------------------------
 if [ "$INSTALL_FB" = "s" ]; then
-  msg_info "Installazione FileBrowser"
-  curl -fsSL https://raw.githubusercontent.com/filebrowser/get/master/get.sh | bash >/dev/null 2>&1
-  filebrowser config init >/dev/null 2>&1
-  filebrowser users add admin "$FB_PASSWORD" --perm.admin >/dev/null 2>&1
-  msg_ok "FileBrowser installato"
+  FILEBROWSER_INSTALLER=$(mktemp)
+
+  msg_info "Download installer FileBrowser"
+  if ! curl -fsSL --retry 3 https://raw.githubusercontent.com/filebrowser/get/master/get.sh -o "$FILEBROWSER_INSTALLER"; then
+    rm -f "$FILEBROWSER_INSTALLER"
+    msg_error "Download dell'installer FileBrowser non riuscito"
+    exit 1
+  fi
+  msg_ok "Installer FileBrowser scaricato"
+
+  echo "Installazione FileBrowser in corso..."
+  if ! bash "$FILEBROWSER_INSTALLER"; then
+    rm -f "$FILEBROWSER_INSTALLER"
+    msg_error "Installazione FileBrowser non riuscita: controlla il messaggio precedente"
+    exit 1
+  fi
+  rm -f "$FILEBROWSER_INSTALLER"
+
+  if ! command -v filebrowser >/dev/null 2>&1; then
+    msg_error "FileBrowser non è disponibile nel PATH dopo l'installazione"
+    exit 1
+  fi
+
+  msg_info "Configurazione FileBrowser"
+  if ! filebrowser config init; then
+    msg_error "Inizializzazione FileBrowser non riuscita"
+    exit 1
+  fi
+  if ! filebrowser users add admin "$FB_PASSWORD" --perm.admin; then
+    msg_error "Creazione dell'utente amministratore FileBrowser non riuscita"
+    exit 1
+  fi
+  msg_ok "FileBrowser installato e configurato"
 fi
 
 # ------------------------------------------------
