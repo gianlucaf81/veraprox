@@ -4,16 +4,18 @@ Script per creare una VM Debian 12 su Proxmox VE destinata all'uso di VeraCrypt,
 
 ## Cosa fa
 
-`create-veracrypt-vm.sh`, da eseguire sull'host Proxmox, guida nella scelta delle risorse della VM, del bridge di rete e del dispositivo USB. Al termine mostra il comando da eseguire nella VM.
+`create-veracrypt-vm.sh`, da eseguire sull'host Proxmox, guida nella scelta delle risorse della VM, del bridge e del dispositivo USB da passare alla VM. Non raccoglie né conserva password.
 
 Il campo dell'ID VM viene precompilato con il primo valore libero del cluster Proxmox, ma può essere modificato prima della creazione.
 
 `post-install-veracrypt.sh`, da eseguire **all'interno della VM Debian 12**, installa:
 
 - VeraCrypt console per Debian 12 amd64;
-- le dipendenze necessarie e una regola udev per il dispositivo USB selezionato;
+- le dipendenze necessarie e una regola udev per il dispositivo USB scelto nella VM;
 - una web app su porta `5000` per montare e smontare il volume;
-- FileBrowser sulla porta `8080`, se scelto durante la configurazione.
+- FileBrowser sulla porta `8080`, se scelto durante la configurazione nella VM.
+
+Il secondo script è indipendente dal primo: chiede direttamente nella VM quale dispositivo USB configurare, la password dell'interfaccia web e se installare FileBrowser.
 
 Ad ogni esecuzione il secondo script interroga la release stabile più recente nel repository ufficiale VeraCrypt, scarica l'asset Debian 12 amd64 corrispondente e controlla il checksum SHA-256 prima dell'installazione.
 
@@ -45,15 +47,13 @@ qm set ID_DELLA_VM --boot order=scsi0
 
 ### 2. Completa l'installazione nella VM
 
-Accedi alla VM come `root` dopo l'installazione di Debian. Nella schermata finale dello script Proxmox troverai il comando già composto con l'identificativo USB e le opzioni scelte. Eseguilo nella VM.
-
-In alternativa, scarica lo script e passagli manualmente le variabili richieste:
+Accedi alla VM come `root` dopo l'installazione di Debian ed esegui:
 
 ```bash
-USB_VENDOR=0781 USB_PRODUCT=5583 WEB_PASSWORD='scegli-una-password-forte' INSTALL_FB=s FB_PASSWORD='scegli-un-altra-password-forte' bash -c "$(curl -fsSL https://raw.githubusercontent.com/gianlucaf81/veraprox/main/post-install-veracrypt.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/gianlucaf81/veraprox/main/post-install-veracrypt.sh)"
 ```
 
-Sostituisci `0781` e `5583` con il vendor/product ID del tuo dispositivo USB. Lo script di creazione della VM li rileva automaticamente.
+Il programma mostrerà il dispositivo USB passato alla VM, chiederà la password dell'interfaccia web e domanderà se installare FileBrowser. Non devi copiare valori o password dall'host Proxmox.
 
 Se `curl` non è presente nella VM Debian, installalo prima con `apt update && apt install -y curl`.
 
@@ -70,7 +70,7 @@ L'interfaccia web e FileBrowser non includono TLS. Usali solo in una rete fidata
 
 ## Password
 
-Le password vengono richieste durante la procedura. Se un campo viene lasciato vuoto, gli script mantengono i valori predefiniti `password_web` e `filebrowser`: cambiali sempre con valori robusti.
+Le password vengono richieste soltanto dal secondo script, dentro la VM. Se un campo viene lasciato vuoto, sono mantenuti i valori predefiniti `password_web` e `filebrowser`: cambiali sempre con valori robusti.
 
 ## Avvertenze
 

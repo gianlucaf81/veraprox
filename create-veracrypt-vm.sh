@@ -148,23 +148,6 @@ if [ "${#USB_MENU_ITEMS[@]}" -eq 0 ]; then
 fi
 
 USB_ID=$(whiptail --backtitle "$WT_TITLE" --title "Dispositivo USB" --menu "Seleziona il device da passare in passthrough" 20 70 10 "${USB_MENU_ITEMS[@]}" 3>&1 1>&2 2>&3) || exit 1
-USB_VENDOR="${USB_ID%%:*}"
-USB_PRODUCT="${USB_ID##*:}"
-
-# ------------------------------------------------
-# Credenziali
-# ------------------------------------------------
-WEB_PASSWORD=$(whiptail --backtitle "$WT_TITLE" --passwordbox "Password interfaccia web admin" 8 58 --title "Credenziali" 3>&1 1>&2 2>&3) || exit 1
-WEB_PASSWORD=${WEB_PASSWORD:-password_web}
-
-if whiptail --backtitle "$WT_TITLE" --title "FileBrowser" --yesno "Installare FileBrowser?" 8 58; then
-  INSTALL_FB="s"
-  FB_PASSWORD=$(whiptail --backtitle "$WT_TITLE" --passwordbox "Password FileBrowser admin" 8 58 --title "Credenziali" 3>&1 1>&2 2>&3) || exit 1
-  FB_PASSWORD=${FB_PASSWORD:-filebrowser}
-else
-  INSTALL_FB="n"
-  FB_PASSWORD=""
-fi
 
 # ------------------------------------------------
 # Riepilogo di conferma
@@ -174,8 +157,7 @@ ID proposto automaticamente dal cluster: $NEXT_VMID
 Nome: $VMNAME
 RAM: ${VMRAM}MB  |  Cores: $VMCORES  |  Disco: ${VMDISK}GB
 Bridge: $VMBRIDGE
-USB: $USB_ID
-FileBrowser: $INSTALL_FB"
+USB: $USB_ID"
 
 whiptail --backtitle "$WT_TITLE" --title "Conferma" --yesno "$SUMMARY
 
@@ -240,8 +222,6 @@ echo -e "${GN}=== VM CREATA CON SUCCESSO ===${CL}"
 echo -e "${BL}VMID:${CL}          $VMID"
 echo -e "${BL}Nome:${CL}          $VMNAME"
 echo -e "${BL}USB Device:${CL}    $USB_ID"
-echo -e "${BL}Password Web:${CL}  $WEB_PASSWORD"
-[ "$INSTALL_FB" = "s" ] && echo -e "${BL}Password FB:${CL}   $FB_PASSWORD"
 echo
 echo -e "${YW}PROSSIMI PASSI:${CL}"
 echo "1. Avvia la VM:            qm start $VMID"
@@ -249,8 +229,7 @@ echo "2. Installa Debian 12 senza desktop dalla console Proxmox"
 echo "   In 'Selezione del software', deseleziona 'Ambiente desktop Debian'."
 echo "   Lascia selezionati solo 'server SSH' e 'utility di sistema standard'."
 echo "3. Nella VM, esegui il post-install con curl:"
-printf '   USB_VENDOR=%q USB_PRODUCT=%q WEB_PASSWORD=%q INSTALL_FB=%q FB_PASSWORD=%q bash -c "$(curl -fsSL %q)"\n' \
-  "$USB_VENDOR" "$USB_PRODUCT" "$WEB_PASSWORD" "$INSTALL_FB" "$FB_PASSWORD" "$RAW_URL"
+printf '   bash -c "$(curl -fsSL %q)"\n' "$RAW_URL"
 echo "   Se curl non è installato: apt update && apt install -y curl"
 echo "4. Dopo l'installazione, rimuovi l'ISO e avvia dal disco:"
 echo "   qm set $VMID --delete ide2"

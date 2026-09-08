@@ -5,12 +5,8 @@
 # Da eseguire DENTRO la VM Debian 12 dopo l'installazione.
 # Installa VeraCrypt + FileBrowser + web app di mount/unmount.
 #
-# Parametri via variabili d'ambiente:
-#   USB_VENDOR   (es. 0781)
-#   USB_PRODUCT  (es. 5583)
-#   WEB_PASSWORD (default: password_web)
-#   INSTALL_FB   s|n (default: s)
-#   FB_PASSWORD  (default: filebrowser, richiesta se INSTALL_FB=s)
+# Lo script richiede direttamente nella VM il dispositivo USB, le password
+# e l'eventuale installazione di FileBrowser.
 # ============================================
 
 set -Eeuo pipefail
@@ -67,11 +63,53 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-: "${USB_VENDOR:?Variabile USB_VENDOR mancante (es. USB_VENDOR=0781)}"
-: "${USB_PRODUCT:?Variabile USB_PRODUCT mancante (es. USB_PRODUCT=5583)}"
-WEB_PASSWORD=${WEB_PASSWORD:-password_web}
-INSTALL_FB=${INSTALL_FB:-s}
-FB_PASSWORD=${FB_PASSWORD:-filebrowser}
+if ! command -v whiptail >/dev/null 2>&1 || ! command -v lsusb >/dev/null 2>&1; then
+  msg_info "Installazione strumenti di configurazione"
+  apt update -qq
+  apt install -y -qq whiptail usbutils
+  msg_ok "Strumenti di configurazione installati"
+fi
+
+WT_TITLE="VeraCrypt Post-Install"
+
+USB_MENU_ITEMS=()
+while IFS= read -r line; do
+  ID=$(echo "$line" | grep -oE '[0-9a-fA-F]{4}:[0-9a-fA-F]{4}')
+  DESC=$(echo "$line" | sed -E 's/^.*ID [0-9a-fA-F]{4}:[0-9a-fA-F]{4} //')
+  [ -n "$ID" ] && USB_MENU_ITEMS+=("$ID" "$DESC")
+done < <(lsusb)
+
+if [ "${#USB_MENU_ITEMS[@]}" -eq 0 ]; then
+  msg_error "Nessun dispositivo USB rilevato nella VM. Verifica il passthrough in Proxmox."
+  exit 1
+fi
+
+USB_ID=$(whiptail --backtitle "$WT_TITLE" --title "Dispositivo USB" --menu "Seleziona il dispositivo VeraCrypt passato alla VM" 20 70 10 "${USB_MENU_ITEMS[@]}" 3>&1 1>&2 2>&3) || exit 1
+USB_VENDOR="${USB_ID%%:*}"
+USB_PRODUCT="${USB_ID##*:}"
+
+if [ -z "${WEB_PASSWORD:-}" ]; then
+  WEB_PASSWORD=$(whiptail --backtitle "$WT_TITLE" --passwordbox "Password interfaccia web admin" 8 58 --title "Credenziali" 3>&1 1>&2 2>&3) || exit 1
+  WEB_PASSWORD=${WEB_PASSWORD:-password_web}
+fi
+
+if [ -z "${INSTALL_FB:-}" ]; then
+  if whiptail --backtitle "$WT_TITLE" --title "FileBrowser" --yesno "Installare FileBrowser?" 8 58; then
+    INSTALL_FB="s"
+  else
+    INSTALL_FB="n"
+  fi
+fi
+
+if [ "$INSTALL_FB" = "s" ] && [ -z "${FB_PASSWORD:-}" ]; then
+  FB_PASSWORD=$(whiptail --backtitle "$WT_TITLE" --passwordbox "Password FileBrowser admin" 8 58 --title "Credenziali" 3>&1 1>&2 2>&3) || exit 1
+  FB_PASSWORD=${FB_PASSWORD:-filebrowser}
+fi
+
+if [ "$INSTALL_FB" != "s" ] && [ "$INSTALL_FB" != "n" ]; then
+  msg_error "INSTALL_FB deve essere 's' oppure 'n'."
+  exit 1
+fi
 
 VERACRYPT_RELEASE_API="https://api.github.com/repos/veracrypt/VeraCrypt/releases/latest"
 VERACRYPT_DEB_NAME=""
@@ -84,7 +122,7 @@ apt update -qq && apt upgrade -y -qq
 msg_ok "Sistema aggiornato"
 
 msg_info "Installazione dipendenze"
-apt install -y -qq sudo curl wget secure-delete ntfs-3g fuse3 python3-flask python3-pip
+apt install -y -qq sudo curl wget usbutils secure-delete ntfs-3g fuse3 python3-flask python3-pip
 msg_ok "Dipendenze installate"
 
 # ------------------------------------------------
