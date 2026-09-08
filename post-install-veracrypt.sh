@@ -11,49 +11,23 @@
 
 set -Eeuo pipefail
 
-YW=$(echo "\033[33m")
-GN=$(echo "\033[1;92m")
-RD=$(echo "\033[01;31m")
-CL=$(echo "\033[m")
-BFR="\\r\\033[K"
-CM="${GN}✓${CL}"
-CROSS="${RD}✗${CL}"
+GREEN="\e[32m"
+RED="\e[31m"
+YELLOW="\e[33m"
+CYAN="\e[36m"
+RESET="\e[0m"
+WT_TITLE="VeraProx - Configurazione VM"
 
-SPINNER_PID=""
+print_success() { echo -e "${GREEN}[✔]${RESET} $1"; }
+print_error()   { echo -e "${RED}[✘]${RESET} $1" >&2; }
+print_info()    { echo -e "${CYAN}[i]${RESET} $1"; }
+print_warn()    { echo -e "${YELLOW}[!]${RESET} $1"; }
 
-spinner() {
-  local frames="/-\\|"
-  local i=0
-  while true; do
-    i=$(( (i + 1) % 4 ))
-    printf "\r %s %b" "${frames:$i:1}" "${YW}${SPINNER_MSG}...${CL}"
-    sleep 0.1
-  done
-}
-
-msg_info() {
-  SPINNER_MSG="$1"
-  spinner &
-  SPINNER_PID=$!
-  disown "$SPINNER_PID" 2>/dev/null || true
-}
-
-msg_ok() {
-  if [ -n "$SPINNER_PID" ]; then
-    kill "$SPINNER_PID" >/dev/null 2>&1 || true
-    wait "$SPINNER_PID" 2>/dev/null || true
-    SPINNER_PID=""
-  fi
-  printf "${BFR} ${CM} ${GN}%s${CL}\n" "$1"
-}
-
+msg_info() { print_info "$1"; }
+msg_ok() { print_success "$1"; }
 msg_error() {
-  if [ -n "$SPINNER_PID" ]; then
-    kill "$SPINNER_PID" >/dev/null 2>&1 || true
-    wait "$SPINNER_PID" 2>/dev/null || true
-    SPINNER_PID=""
-  fi
-  printf "${BFR} ${CROSS} ${RD}%s${CL}\n" "$1"
+  print_error "$1"
+  command -v whiptail >/dev/null 2>&1 && whiptail --title "$WT_TITLE" --msgbox "$1" 9 72
 }
 
 on_error() {
@@ -73,12 +47,14 @@ fi
 
 if ! command -v whiptail >/dev/null 2>&1 || ! command -v lsusb >/dev/null 2>&1; then
   msg_info "Installazione strumenti di configurazione"
-  apt update -qq
-  apt install -y -qq whiptail usbutils
+  apt update -qq >/dev/null
+  apt install -y -qq whiptail usbutils >/dev/null
   msg_ok "Strumenti di configurazione installati"
 fi
 
-WT_TITLE="VeraCrypt Post-Install"
+if ! whiptail --title "$WT_TITLE" --yesno "VeraProx configurerà VeraCrypt, l'interfaccia web e FileBrowser opzionale nella VM.\n\nContinuare?" 11 72; then
+  exit 0
+fi
 
 USB_MENU_ITEMS=()
 while IFS= read -r line; do
@@ -127,11 +103,11 @@ VERACRYPT_DEB_NAME=""
 # Aggiornamento sistema
 # ------------------------------------------------
 msg_info "Aggiornamento pacchetti di sistema"
-apt update -qq && apt upgrade -y -qq
+apt update -qq >/dev/null && apt upgrade -y -qq >/dev/null
 msg_ok "Sistema aggiornato"
 
 msg_info "Installazione dipendenze"
-apt install -y -qq curl wget usbutils secure-delete ntfs-3g fuse3 python3-flask
+apt install -y -qq curl wget usbutils secure-delete ntfs-3g fuse3 python3-flask >/dev/null
 msg_ok "Dipendenze installate"
 
 # ------------------------------------------------
@@ -550,12 +526,10 @@ msg_ok "Servizio secure-webapp attivo"
 # ------------------------------------------------
 # Riepilogo
 # ------------------------------------------------
-echo
-echo -e "${GN}=== INSTALLAZIONE COMPLETATA ===${CL}"
-echo "Accesso web:       http://IP-VM:5000"
-[ "$INSTALL_FB" = "s" ] && echo "FileBrowser:       http://IP-VM:8080"
-echo "Password Web:      $WEB_PASSWORD"
-[ "$INSTALL_FB" = "s" ] && echo "FileBrowser login: admin / $FB_PASSWORD"
-echo
-echo "Mount manuale:     /usr/local/bin/mount-secure.sh"
-echo "Umount manuale:    /usr/local/bin/umount-secure.sh"
+FINAL_MESSAGE="Installazione completata.\n\nInterfaccia VeraProx: http://IP-DELLA-VM:5000\nPassword web: $WEB_PASSWORD\n\nMount manuale: /usr/local/bin/mount-secure.sh\nSmontaggio manuale: /usr/local/bin/umount-secure.sh"
+
+if [ "$INSTALL_FB" = "s" ]; then
+  FINAL_MESSAGE+="\n\nFileBrowser: http://IP-DELLA-VM:8080\nAccesso FileBrowser: admin / $FB_PASSWORD"
+fi
+
+whiptail --title "$WT_TITLE" --msgbox "$FINAL_MESSAGE" 18 78

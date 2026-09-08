@@ -4,66 +4,38 @@
 # create-veracrypt-vm.sh
 # Creazione VM VeraCrypt + FileBrowser su Proxmox VE
 # USB passthrough (Vendor/Device ID)
-# Stile UI ispirato a community-scripts.org (build.func)
+# Interfaccia in stile Ausilio/helper script
 # ============================================
 
 set -Eeuo pipefail
 
 # ------------------------------------------------
-# Colori e simboli (community-scripts style)
+# Stile messaggi Ausilio
 # ------------------------------------------------
-YW=$(echo "\033[33m")
-GN=$(echo "\033[1;92m")
-RD=$(echo "\033[01;31m")
-BL=$(echo "\033[36m")
-CL=$(echo "\033[m")
-BFR="\\r\\033[K"
-HOLD=" "
-CM="${GN}✓${CL}"
-CROSS="${RD}✗${CL}"
+GREEN="\e[32m"
+RED="\e[31m"
+YELLOW="\e[33m"
+CYAN="\e[36m"
+RESET="\e[0m"
+WT_TITLE="VeraProx - Crea VM"
 
 GITHUB_USER="gianlucaf81"
 GITHUB_REPO="veraprox"
 RAW_URL="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/post-install-veracrypt.sh"
 
 # ------------------------------------------------
-# Spinner
+# Messaggi e finestre
 # ------------------------------------------------
-SPINNER_PID=""
+print_success() { echo -e "${GREEN}[✔]${RESET} $1"; }
+print_error()   { echo -e "${RED}[✘]${RESET} $1" >&2; }
+print_info()    { echo -e "${CYAN}[i]${RESET} $1"; }
+print_warn()    { echo -e "${YELLOW}[!]${RESET} $1"; }
 
-spinner() {
-  local frames="/-\\|"
-  local i=0
-  while true; do
-    i=$(( (i + 1) % 4 ))
-    printf "\r %s %b" "${frames:$i:1}" "${YW}${SPINNER_MSG}...${CL}"
-    sleep 0.1
-  done
-}
-
-msg_info() {
-  SPINNER_MSG="$1"
-  spinner &
-  SPINNER_PID=$!
-  disown "$SPINNER_PID" 2>/dev/null || true
-}
-
-msg_ok() {
-  if [ -n "$SPINNER_PID" ]; then
-    kill "$SPINNER_PID" >/dev/null 2>&1 || true
-    wait "$SPINNER_PID" 2>/dev/null || true
-    SPINNER_PID=""
-  fi
-  printf "${BFR} ${CM} ${GN}%s${CL}\n" "$1"
-}
-
+msg_info() { print_info "$1"; }
+msg_ok() { print_success "$1"; }
 msg_error() {
-  if [ -n "$SPINNER_PID" ]; then
-    kill "$SPINNER_PID" >/dev/null 2>&1 || true
-    wait "$SPINNER_PID" 2>/dev/null || true
-    SPINNER_PID=""
-  fi
-  printf "${BFR} ${CROSS} ${RD}%s${CL}\n" "$1"
+  print_error "$1"
+  command -v whiptail >/dev/null 2>&1 && whiptail --title "$WT_TITLE" --msgbox "$1" 9 72
 }
 
 on_error() {
@@ -100,26 +72,16 @@ fi
 # Verifica whiptail
 # ------------------------------------------------
 if ! command -v whiptail >/dev/null 2>&1; then
-  echo "whiptail non trovato, installazione..."
-  apt update -qq && apt install -y whiptail -qq
+  print_info "Installazione di whiptail..."
+  apt update -qq >/dev/null && apt install -y whiptail -qq >/dev/null
 fi
 
-WT_TITLE="VeraCrypt VM Builder"
-
 # ------------------------------------------------
-# Header
+# Benvenuto
 # ------------------------------------------------
-clear
-echo -e "${BL}"
-cat << "HEADER"
- __     __            _____                _
- \ \   / /__ _ __ __ _/ ____|_ __ _   _ _ __ | |_
-  \ \ / / _ \ '__/ _` | |    | '__| | | | '_ \| __|
-   \ V /  __/ | | (_| | |____| |  | |_| | |_) | |_
-    \_/ \___|_|  \__,_|\_____|_|   \__, | .__/ \__|
-                                    |___/|_|
-HEADER
-echo -e "${CL}"
+if ! whiptail --title "$WT_TITLE" --yesno "VeraProx creerà una VM Debian 12 minimale con passthrough di un dispositivo USB per VeraCrypt.\n\nContinuare?" 11 72; then
+  exit 0
+fi
 
 # ------------------------------------------------
 # Prompt parametri VM
@@ -217,21 +179,4 @@ msg_ok "Boot da ISO e guest agent configurati"
 # ------------------------------------------------
 # Riepilogo finale
 # ------------------------------------------------
-echo
-echo -e "${GN}=== VM CREATA CON SUCCESSO ===${CL}"
-echo -e "${BL}VMID:${CL}          $VMID"
-echo -e "${BL}Nome:${CL}          $VMNAME"
-echo -e "${BL}USB Device:${CL}    $USB_ID"
-echo
-echo -e "${YW}PROSSIMI PASSI:${CL}"
-echo "1. Avvia la VM:            qm start $VMID"
-echo "2. Installa Debian 12 senza desktop dalla console Proxmox"
-echo "   In 'Selezione del software', deseleziona 'Ambiente desktop Debian'."
-echo "   Lascia selezionati solo 'server SSH' e 'utility di sistema standard'."
-echo "3. Nella VM, esegui il post-install con curl:"
-printf '   bash -c "$(curl -fsSL %q)"\n' "$RAW_URL"
-echo "   Se curl non è installato: apt update && apt install -y curl"
-echo "4. Dopo l'installazione, rimuovi l'ISO e avvia dal disco:"
-echo "   qm set $VMID --delete ide2"
-echo "   qm set $VMID --boot order=scsi0"
-echo
+whiptail --title "$WT_TITLE" --msgbox "VM '$VMNAME' (ID: $VMID) creata con successo.\n\n1. Avviala con: qm start $VMID\n2. Installa Debian 12 senza ambiente desktop. In 'Selezione del software', lascia solo 'server SSH' e 'utility di sistema standard'.\n3. Nella VM esegui:\n   bash -c \"\$(curl -fsSL $RAW_URL)\"\n   Se curl non è presente: apt update && apt install -y curl\n4. Al termine, rimuovi l'ISO:\n   qm set $VMID --delete ide2\n   qm set $VMID --boot order=scsi0" 22 78
