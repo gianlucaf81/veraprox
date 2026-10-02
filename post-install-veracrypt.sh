@@ -3,7 +3,7 @@
 # ============================================
 # post-install-veracrypt.sh
 # Da eseguire DENTRO la VM Debian 12 dopo l'installazione.
-# Installa VeraCrypt + FileBrowser + web app di mount/unmount.
+# Installa VeraCrypt + FileBrowser Quantum + web app di mount/unmount.
 #
 # Lo script richiede le password e l'eventuale installazione di FileBrowser.
 # Il dispositivo si seleziona nel runtime condiviso, dalla web app o dal terminale.
@@ -56,7 +56,7 @@ if ! command -v whiptail >/dev/null 2>&1; then
   apt install -y -qq whiptail >/dev/null
 fi
 
-if ! whiptail --title "$WT_TITLE" --yesno "VeraProx configurerà VeraCrypt, l'interfaccia web e FileBrowser opzionale.\n\nIl dispositivo verrà selezionato dalla nuova interfaccia o con veraprox-device.sh.\n\nContinuare?" 13 78; then
+if ! whiptail --title "$WT_TITLE" --yesno "VeraProx configurerà VeraCrypt, l'interfaccia web e FileBrowser Quantum opzionale.\n\nIl dispositivo verrà selezionato dalla pagina web o con veraprox-device.sh.\n\nContinuare?" 13 78; then
   exit 0
 fi
 
@@ -71,15 +71,17 @@ if [ -z "${WEB_PASSWORD:-}" ]; then
 fi
 
 if [ -z "${INSTALL_FB:-}" ]; then
-  if whiptail --backtitle "$WT_TITLE" --title "FileBrowser" --yesno "Installare FileBrowser?" 8 58; then
+  if whiptail --backtitle "$WT_TITLE" --title "FileBrowser Quantum" --yesno "Installare FileBrowser Quantum con anteprime video?" 8 68; then
     INSTALL_FB="s"
   else
     INSTALL_FB="n"
   fi
 fi
 
-if [ "$INSTALL_FB" = "s" ] && [ -z "${FB_PASSWORD:-}" ]; then
-  FB_PASSWORD=$(whiptail --backtitle "$WT_TITLE" --passwordbox "Password FileBrowser admin" 8 58 --title "Credenziali" 3>&1 1>&2 2>&3) || exit 1
+FB_EXISTING=false
+if [ -s /etc/veraprox/filebrowser-quantum/quantum.db ]; then FB_EXISTING=true; fi
+if [ "$INSTALL_FB" = "s" ] && [ "$FB_EXISTING" = false ] && [ -z "${FB_PASSWORD:-}" ]; then
+  FB_PASSWORD=$(whiptail --backtitle "$WT_TITLE" --passwordbox "Password Quantum admin (8–72 byte UTF-8)" 8 64 --title "Credenziali" 3>&1 1>&2 2>&3) || exit 1
   [ -n "$FB_PASSWORD" ] || { msg_error "La password FileBrowser non può essere vuota."; exit 1; }
 fi
 
@@ -88,7 +90,6 @@ if [ "$INSTALL_FB" != "s" ] && [ "$INSTALL_FB" != "n" ]; then
   exit 1
 fi
 
-FILEBROWSER_DB="/etc/filebrowser/filebrowser.db"
 VERACRYPT_RELEASE_API="https://api.github.com/repos/veracrypt/VeraCrypt/releases/latest"
 VERACRYPT_DEB_NAME=""
 
@@ -159,51 +160,24 @@ chmod 700 /mnt/secure
 msg_ok "Directory /mnt/secure pronta"
 
 # ------------------------------------------------
-# FileBrowser (opzionale)
+# FileBrowser Quantum (opzionale)
 # ------------------------------------------------
 if [ "$INSTALL_FB" = "s" ]; then
   FILEBROWSER_INSTALLER=$(mktemp)
-
-  msg_info "Download installer FileBrowser"
-  if ! curl -fsSL --retry 3 https://raw.githubusercontent.com/filebrowser/get/master/get.sh -o "$FILEBROWSER_INSTALLER"; then
-    rm -f "$FILEBROWSER_INSTALLER"
-    msg_error "Download dell'installer FileBrowser non riuscito"
+  msg_info "Installazione FileBrowser Quantum e FFmpeg"
+  if [ -n "$RUNTIME_LOCAL_DIR" ] && [ -f "$RUNTIME_LOCAL_DIR/install-filebrowser-quantum.sh" ]; then
+    cp -- "$RUNTIME_LOCAL_DIR/install-filebrowser-quantum.sh" "$FILEBROWSER_INSTALLER"
+  else
+    curl -fsSL --retry 3 https://raw.githubusercontent.com/gianlucaf81/veraprox/main/install-filebrowser-quantum.sh -o "$FILEBROWSER_INSTALLER"
+  fi
+  bash -n "$FILEBROWSER_INSTALLER"
+  if ! printf '%s' "${FB_PASSWORD:-}" | bash "$FILEBROWSER_INSTALLER" --password-stdin; then
+    rm -f -- "$FILEBROWSER_INSTALLER"
+    msg_error "Installazione Quantum non riuscita."
     exit 1
   fi
-  msg_ok "Installer FileBrowser scaricato"
-
-  echo "Installazione FileBrowser in corso..."
-  if ! bash "$FILEBROWSER_INSTALLER"; then
-    rm -f "$FILEBROWSER_INSTALLER"
-    msg_error "Installazione FileBrowser non riuscita: controlla il messaggio precedente"
-    exit 1
-  fi
-  rm -f "$FILEBROWSER_INSTALLER"
-
-  if ! command -v filebrowser >/dev/null 2>&1; then
-    msg_error "FileBrowser non è disponibile nel PATH dopo l'installazione"
-    exit 1
-  fi
-
-  msg_info "Configurazione FileBrowser"
-  mkdir -p /etc/filebrowser
-  chmod 700 /etc/filebrowser
-
-  if [ ! -f "$FILEBROWSER_DB" ] && ! filebrowser config init -d "$FILEBROWSER_DB"; then
-    msg_error "Inizializzazione FileBrowser non riuscita"
-    exit 1
-  fi
-
-  if filebrowser users find admin -d "$FILEBROWSER_DB" >/dev/null 2>&1; then
-    if ! filebrowser users update admin --password "$FB_PASSWORD" --perm.admin -d "$FILEBROWSER_DB"; then
-      msg_error "Aggiornamento dell'utente amministratore FileBrowser non riuscito"
-      exit 1
-    fi
-  elif ! filebrowser users add admin "$FB_PASSWORD" --perm.admin -d "$FILEBROWSER_DB"; then
-    msg_error "Creazione dell'utente amministratore FileBrowser non riuscita"
-    exit 1
-  fi
-  msg_ok "FileBrowser installato e configurato"
+  rm -f -- "$FILEBROWSER_INSTALLER"
+  msg_ok "FileBrowser Quantum pronto"
 fi
 
 # ------------------------------------------------
@@ -251,7 +225,11 @@ VM_IP=${VM_IP:-"IP non rilevato"}
 FINAL_MESSAGE="Installazione completata.\n\nInterfaccia VeraProx: http://$VM_IP:5000\nPassword web: $WEB_PASSWORD\n\nMount manuale: /usr/local/bin/mount-secure.sh\nSmontaggio manuale: /usr/local/bin/umount-secure.sh\n\nPrima del mount scegli il disco nella pagina web\no con veraprox-device.sh."
 
 if [ "$INSTALL_FB" = "s" ]; then
-  FINAL_MESSAGE+="\n\nFileBrowser: http://$VM_IP:8080\nAccesso FileBrowser: admin / $FB_PASSWORD"
+  if [ "$FB_EXISTING" = true ]; then
+    FINAL_MESSAGE+="\n\nFileBrowser Quantum: http://$VM_IP:8080\nAccesso Quantum: credenziali precedenti conservate"
+  else
+    FINAL_MESSAGE+="\n\nFileBrowser Quantum: http://$VM_IP:8080\nAccesso Quantum: admin / $FB_PASSWORD"
+  fi
 fi
 
 whiptail --title "$WT_TITLE" --msgbox "$FINAL_MESSAGE" 18 78

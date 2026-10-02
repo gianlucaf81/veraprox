@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Aggiorna solo il runtime VeraProx: non reinstalla VeraCrypt o FileBrowser.
+# Aggiorna il runtime; --install-quantum sostituisce esplicitamente FileBrowser.
 set -Eeuo pipefail
 umask 077
 
@@ -15,6 +15,10 @@ for runtime_tool in python3 veracrypt lsblk findmnt systemctl; do
   command -v "$runtime_tool" >/dev/null || { echo "Strumento mancante: $runtime_tool" >&2; exit 1; }
 done
 python3 -c 'import flask' || { echo "Installa python3-flask prima dell'aggiornamento." >&2; exit 1; }
+case "${1:-}" in
+  ''|--web-password-stdin|--install-quantum) ;;
+  *) echo "Uso: bash update-veraprox.sh [--install-quantum|--web-password-stdin]" >&2; exit 1 ;;
+esac
 
 RUNTIME_WORK=$(mktemp -d)
 trap 'rm -rf -- "$RUNTIME_WORK"' EXIT
@@ -28,6 +32,20 @@ if [ -d /etc/veraprox ]; then cp -a /etc/veraprox "$BACKUP_DIR/"; fi
 echo "Backup della configurazione e dei vecchi script: $BACKUP_DIR"
 install -d -m 700 /etc/veraprox
 install -d -m 755 /usr/local/lib/veraprox
+
+if [ "${1:-}" = "--install-quantum" ]; then
+  QUANTUM_LOCAL_DIR=""
+  if [ -n "${BASH_SOURCE[0]:-}" ]; then
+    QUANTUM_LOCAL_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+  fi
+  if [ -n "$QUANTUM_LOCAL_DIR" ] && [ -f "$QUANTUM_LOCAL_DIR/install-filebrowser-quantum.sh" ]; then
+    cp -- "$QUANTUM_LOCAL_DIR/install-filebrowser-quantum.sh" "$RUNTIME_WORK/install-quantum.sh"
+  else
+    curl -fsSL --retry 3 https://raw.githubusercontent.com/gianlucaf81/veraprox/main/install-filebrowser-quantum.sh -o "$RUNTIME_WORK/install-quantum.sh"
+  fi
+  bash -n "$RUNTIME_WORK/install-quantum.sh"
+  bash "$RUNTIME_WORK/install-quantum.sh"
+fi
 
 # Legge la vecchia password come dato, senza importare/eseguire la vecchia web app.
 # L'installer può fornire una nuova password su stdin; un aggiornamento la conserva.
@@ -89,6 +107,7 @@ DEVICE_CONFIG = CONFIG_DIR / 'device.conf'
 IMMICH_CONFIG = CONFIG_DIR / 'immich.json'
 MOUNTPOINT = '/mnt/secure'
 FILEBROWSER_SERVICE = 'veraprox-filebrowser.service'
+QUANTUM_CONFIG = CONFIG_DIR / 'filebrowser-quantum' / 'config.yaml'
 LOCK_PATH = '/run/lock/veraprox.lock'
 RUN_DIR = Path('/run/veraprox')
 
@@ -273,15 +292,36 @@ def filebrowser_installed():
     return Path('/etc/systemd/system/' + FILEBROWSER_SERVICE).exists()
 
 
+def prepare_quantum():
+    # Utilizzato anche da ExecStartPre: mai creare cache sotto un mountpoint vuoto.
+    check_mounted()
+    config = json.loads(protected_read(QUANTUM_CONFIG))
+    private = Path(MOUNTPOINT) / '.veraprox-quantum'
+    if config['server']['cacheDir'] != str(private / 'cache'):
+        raise VolumeError('Percorso cache Quantum non valido.')
+    sources = config['server']['sources']
+    if len(sources) != 1 or sources[0]['path'] != MOUNTPOINT:
+        raise VolumeError('Quantum deve esporre soltanto il volume configurato.')
+    for path in (private, private / 'cache', private / 'tmp'):
+        if path.is_symlink() or (path.exists() and not path.is_dir()):
+            raise VolumeError('Directory Quantum non sicura: collegamenti simbolici non consentiti.')
+        path.mkdir(mode=0o700, exist_ok=True)
+        if path.resolve().parent not in (Path(MOUNTPOINT).resolve(), private.resolve()):
+            raise VolumeError('Directory Quantum fuori dal volume.')
+
+
 def start_filebrowser():
     if filebrowser_installed():
+        quantum = QUANTUM_CONFIG.exists()
+        if quantum:
+            prepare_quantum()
         command(['systemctl', 'start', FILEBROWSER_SERVICE])
-        for _ in range(20):
+        for _ in range(60):
             if command(['systemctl', 'is-active', '--quiet', FILEBROWSER_SERVICE], check=False).returncode == 0:
                 # Verifica che il processo HTTP risponda, non soltanto lo stato systemd.
                 from urllib.request import urlopen
                 try:
-                    with urlopen('http://127.0.0.1:8080/', timeout=1) as response:
+                    with urlopen('http://127.0.0.1:8080/' + ('health' if quantum else ''), timeout=1) as response:
                         if response.status == 200:
                             return
                 except OSError:
@@ -669,7 +709,7 @@ def main():
     if os.geteuid() != 0:
         raise VolumeError('Eseguire come root.')
     parser = argparse.ArgumentParser(description='VeraProx: gestione del volume configurato')
-    parser.add_argument('action', choices=['configure', 'mount', 'unmount', 'check-mounted', 'status',
+    parser.add_argument('action', choices=['configure', 'mount', 'unmount', 'check-mounted', 'prepare-quantum', 'status',
                                           'web', 'configure-immich', 'disable-immich'])
     parser.add_argument('path', nargs='?')
     args = parser.parse_args()
@@ -683,6 +723,8 @@ def main():
         print(unmount_volume())
     elif args.action == 'check-mounted':
         check_mounted()
+    elif args.action == 'prepare-quantum':
+        prepare_quantum()
     elif args.action == 'status':
         print('Dispositivo: ' + load_device())
         print('Volume: ' + ('montato' if os.path.ismount(MOUNTPOINT) else 'smontato'))
@@ -759,7 +801,33 @@ os.execv('/usr/bin/python3', ['/usr/bin/python3', '/usr/local/lib/veraprox/runti
 WEBCLI
 chmod 755 /usr/local/bin/mount-secure.sh /usr/local/bin/umount-secure.sh /usr/local/bin/veraprox-device.sh /usr/local/bin/veraprox-immich.sh /usr/local/bin/secure-webapp.py
 
-if command -v filebrowser >/dev/null && [ -f /etc/filebrowser/filebrowser.db ]; then
+if [ -x /usr/local/bin/filebrowser-quantum ] && [ -f /etc/veraprox/filebrowser-quantum/config.yaml ]; then
+  cat > /etc/systemd/system/veraprox-filebrowser.service <<'QUANTUMSERVICE'
+[Unit]
+Description=VeraProx FileBrowser Quantum (solo dopo il montaggio verificato)
+After=network.target
+ConditionPathIsMountPoint=/mnt/secure
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/etc/veraprox/filebrowser-quantum
+ExecStartPre=/usr/bin/python3 /usr/local/lib/veraprox/runtime.py prepare-quantum
+ExecStart=/usr/local/bin/filebrowser-quantum -c /etc/veraprox/filebrowser-quantum/config.yaml
+Environment=TMPDIR=/mnt/secure/.veraprox-quantum/tmp
+Environment=TMP=/mnt/secure/.veraprox-quantum/tmp
+Environment=TEMP=/mnt/secure/.veraprox-quantum/tmp
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=60
+UMask=0077
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/mnt/secure /etc/veraprox/filebrowser-quantum
+QUANTUMSERVICE
+elif command -v filebrowser >/dev/null && [ -f /etc/filebrowser/filebrowser.db ]; then
+  # Compatibilità per chi aggiorna il solo runtime senza chiedere la migrazione.
   FILEBROWSER_BINARY=$(command -v filebrowser)
   cat > /etc/systemd/system/veraprox-filebrowser.service <<FBSERVICE
 [Unit]
@@ -799,6 +867,7 @@ WantedBy=multi-user.target
 WEBSERVICE
 
 systemctl daemon-reload
+systemctl disable veraprox-filebrowser.service >/dev/null 2>&1 || true
 systemctl enable secure-webapp.service >/dev/null
 systemctl restart secure-webapp.service
 python3 - <<'HEALTHPY'
