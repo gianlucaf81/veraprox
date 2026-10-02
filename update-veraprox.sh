@@ -802,7 +802,192 @@ WEBCLI
 chmod 755 /usr/local/bin/mount-secure.sh /usr/local/bin/umount-secure.sh /usr/local/bin/veraprox-device.sh /usr/local/bin/veraprox-immich.sh /usr/local/bin/secure-webapp.py
 
 if [ -x /usr/local/bin/filebrowser-quantum ] && [ -f /etc/veraprox/filebrowser-quantum/config.yaml ]; then
-  cat > /etc/systemd/system/veraprox-filebrowser.service <<'QUANTUMSERVICE'
+  # Riparazione mirata: niente APT, download o reset account.
+  # v1.5.6 tratta la regola root come esclusione degli attributi delle sottocartelle.
+  # L'accesso al filesystem host viene limitato dal servizio, non da quella regola.
+  command -v systemd-run >/dev/null || { echo 'systemd-run necessario per verificare il servizio Quantum.' >&2; exit 1; }
+  cat > "$RUNTIME_WORK/quantum-repair.py" <<'QUANTUMFIXPY'
+import base64
+import json
+import os
+from pathlib import Path
+import secrets
+import socket
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+from urllib.error import HTTPError
+from urllib.parse import quote
+from urllib.request import Request, build_opener, ProxyHandler
+
+
+def correct_settings(config):
+    changed = False
+    bad_rule = {'folderPath': '/', 'ignoreSymlinks': True}
+    for source in config['server']['sources']:
+        rules = source.get('config', {}).get('rules', [])
+        corrected = [rule for rule in rules if rule != bad_rule]
+        if corrected != rules:
+            source['config']['rules'] = corrected
+            changed = True
+    listing = config.get('userDefaults', {}).get('listing', {})
+    if listing.get('viewMode') == 'grid':
+        listing['viewMode'] = 'gallery'
+        changed = True
+    return changed
+
+
+def repair_config(path):
+    path = Path(path)
+    info = path.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o077:
+        raise ValueError('Configurazione Quantum non sicura: richiesto file regolare root 600.')
+    config = json.loads(path.read_text(encoding='utf-8'))
+    changed = correct_settings(config)
+    if changed:
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent,
+                    prefix='.config-repair-', delete=False) as output:
+                temporary = Path(output.name)
+                os.chmod(temporary, 0o600)
+                json.dump(config, output, indent=2)
+                output.write('\n')
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, path)
+        finally:
+            if temporary is not None and temporary.exists():
+                temporary.unlink()
+    return changed
+
+
+def prepare_service_root(path):
+    path = Path(path)
+    for directory in (path.parent, path):
+        if directory.is_symlink():
+            raise ValueError('Root servizio Quantum: collegamenti simbolici non consentiti.')
+        directory.mkdir(mode=0o700, exist_ok=True)
+        info = directory.stat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+            raise ValueError('Root servizio Quantum: directory non sicura.')
+
+
+def isolation_properties(unit):
+    permitted = {'RootDirectory', 'BindReadOnlyPaths', 'NoNewPrivileges',
+                 'CapabilityBoundingSet', 'PrivateDevices', 'ProtectHome',
+                 'ProtectSystem', 'InaccessiblePaths', 'UMask'}
+    properties = {}
+    for line in Path(unit).read_text().splitlines():
+        key, separator, value = line.partition('=')
+        if separator and key in permitted:
+            properties[key] = (properties[key] + ' ' + value).strip() if key in properties else value
+    return properties
+
+
+def verify_isolated_previews(config_path, unit_path):
+    # Nessun file/account reale: media sintetici, DB separato e porta solo localhost.
+    with tempfile.TemporaryDirectory(prefix='veraprox-quantum-check-', dir='/var/tmp') as directory:
+        work = Path(directory)
+        media = work / 'media'
+        nested = media / 'sample'
+        nested.mkdir(parents=True)
+        settings = work / 'settings'
+        settings.mkdir()
+        private = media / '.veraprox-quantum'
+        (private / 'cache').mkdir(parents=True)
+        (private / 'tmp').mkdir()
+        png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a2XcAAAAASUVORK5CYII=')
+        (nested / 'sample.png').write_bytes(png)
+        outside = work / 'outside'
+        outside.mkdir()
+        (outside / 'sample.png').write_bytes(png)
+        (media / 'outside-link').symlink_to(outside, target_is_directory=True)
+        subprocess.run(['/usr/bin/ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error',
+            '-f', 'lavfi', '-i', 'color=c=red:s=64x64:r=5', '-t', '1', '-c:v', 'mpeg4',
+            str(nested / 'sample.mp4')], check=True, timeout=20, capture_output=True)
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1', 0))
+            port = sock.getsockname()[1]
+        config = json.loads(Path(config_path).read_text())
+        correct_settings(config)
+        config['server'].update(listen='127.0.0.1', port=port,
+            database='/etc/veraprox/filebrowser-quantum/quantum.db',
+            cacheDir='/mnt/secure/.veraprox-quantum/cache', disableUpdateCheck=True)
+        config['server']['sources'] = [{'path': '/mnt/secure', 'name': 'Volume',
+            'config': {'defaultEnabled': True, 'private': True, 'defaultUserScope': '/',
+                       'rules': [{'folderName': '.veraprox-quantum'}, {'folderName': '@eaDir'}]}}]
+        seed = secrets.token_urlsafe(32)
+        config['auth'] = {'adminUsername': 'admin', 'adminPassword': seed,
+            'methods': {'password': {'enabled': True, 'signup': False}}}
+        config['integrations']['media']['ffmpegPath'] = '/usr/bin'
+        (settings / 'config.yaml').write_text(json.dumps(config), encoding='utf-8')
+        os.chmod(settings / 'config.yaml', 0o600)
+        name = 'veraprox-quantum-check-' + secrets.token_hex(6) + '.service'
+        properties = isolation_properties(unit_path)
+        properties.update(BindPaths=f'{media}:/mnt/secure {settings}:/etc/veraprox/filebrowser-quantum',
+            ReadWritePaths='/mnt/secure /etc/veraprox/filebrowser-quantum',
+            WorkingDirectory='/etc/veraprox/filebrowser-quantum', RuntimeMaxSec='120')
+        args = ['systemd-run', '--quiet', '--collect', '--service-type=exec', '--unit=' + name]
+        for key, value in properties.items():
+            args.append('--property=' + key + '=' + value)
+        for key in ('TMPDIR', 'TMP', 'TEMP'):
+            args.append('--setenv=' + key + '=/mnt/secure/.veraprox-quantum/tmp')
+        args += ['/usr/local/bin/filebrowser-quantum', '-c', '/etc/veraprox/filebrowser-quantum/config.yaml']
+        opener = build_opener(ProxyHandler({}))
+        base = f'http://127.0.0.1:{port}'
+
+        def get(path, token):
+            return opener.open(Request(base + path, headers={'Authorization': 'Bearer ' + token}), timeout=10)
+
+        try:
+            subprocess.run(args, check=True, timeout=20, capture_output=True)
+            for _ in range(80):
+                try:
+                    request = Request(base + '/api/auth/login?username=admin', method='POST',
+                                      headers={'X-Password': quote(seed, safe='')})
+                    with opener.open(request, timeout=1) as response:
+                        token = response.read().decode().strip('"\n')
+                    break
+                except OSError:
+                    time.sleep(0.25)
+            else:
+                raise RuntimeError('Quantum isolato non risponde.')
+            with get('/api/resources?source=Volume&path=%2Fsample%2F', token) as response:
+                listing = json.load(response)
+            available = {item['name']: item['hasPreview'] for item in listing['files']}
+            for filename in ('sample.png', 'sample.mp4'):
+                if not available.get(filename):
+                    raise RuntimeError('Anteprima di prova non disponibile.')
+                with get('/api/resources/preview?source=Volume&path=%2Fsample%2F' + filename, token) as response:
+                    if response.status != 200 or len(response.read()) < 50:
+                        raise RuntimeError('Anteprima di prova non generata.')
+            try:
+                with get('/api/resources/preview?source=Volume&path=%2Foutside-link%2Fsample.png', token) as response:
+                    if response.status == 200 and response.read():
+                        raise RuntimeError('Il collegamento esterno non è isolato.')
+            except HTTPError as error:
+                if error.code not in (400, 403, 404, 415, 500):
+                    raise
+        finally:
+            subprocess.run(['systemctl', 'stop', name], timeout=20, capture_output=True)
+    print('Test locale VM riuscito: anteprime immagine/video e isolamento del collegamento esterno.')
+
+
+if __name__ == '__main__':
+    try:
+        prepare_service_root(sys.argv[2])
+        verify_isolated_previews(sys.argv[1], sys.argv[3])
+        if repair_config(sys.argv[1]):
+            print('Configurazione anteprime Quantum corretta; account conservati.')
+    except Exception:
+        print('Verifica Quantum fallita: riparazione del servizio non applicata. '
+              'Controlla journalctl -u "veraprox-quantum-check-*" --no-pager -n 80.', file=sys.stderr)
+        sys.exit(1)
+QUANTUMFIXPY
+  cat > "$RUNTIME_WORK/veraprox-filebrowser.service" <<'QUANTUMSERVICE'
 [Unit]
 Description=VeraProx FileBrowser Quantum (solo dopo il montaggio verificato)
 After=network.target
@@ -812,8 +997,15 @@ ConditionPathIsMountPoint=/mnt/secure
 Type=simple
 User=root
 WorkingDirectory=/etc/veraprox/filebrowser-quantum
-ExecStartPre=/usr/bin/python3 /usr/local/lib/veraprox/runtime.py prepare-quantum
+# Il controllo del vero mount deve vedere i dispositivi host, fuori dalla jail.
+ExecStartPre=+/usr/bin/python3 /usr/local/lib/veraprox/runtime.py prepare-quantum
 ExecStart=/usr/local/bin/filebrowser-quantum -c /etc/veraprox/filebrowser-quantum/config.yaml
+RootDirectory=/var/lib/veraprox/quantum-root
+RootDirectoryStartOnly=true
+BindPaths=/mnt/secure /etc/veraprox/filebrowser-quantum
+BindReadOnlyPaths=/usr/local/bin/filebrowser-quantum /usr/bin/ffmpeg /usr/bin/ffprobe /usr/lib /lib -/lib64
+BindReadOnlyPaths=-/etc/ld.so.cache -/etc/localtime -/etc/passwd -/etc/group -/etc/nsswitch.conf -/etc/hosts -/etc/resolv.conf -/etc/ssl/certs
+BindReadOnlyPaths=-/etc/fonts -/usr/share/fonts -/usr/share/fontconfig
 Environment=TMPDIR=/mnt/secure/.veraprox-quantum/tmp
 Environment=TMP=/mnt/secure/.veraprox-quantum/tmp
 Environment=TEMP=/mnt/secure/.veraprox-quantum/tmp
@@ -822,10 +1014,16 @@ RestartSec=3
 TimeoutStopSec=60
 UMask=0077
 NoNewPrivileges=true
+CapabilityBoundingSet=
+PrivateDevices=true
 ProtectHome=true
 ProtectSystem=strict
 ReadWritePaths=/mnt/secure /etc/veraprox/filebrowser-quantum
+# Non esporre processi e descrittori host tramite collegamenti sul volume.
+InaccessiblePaths=-/proc -/sys
 QUANTUMSERVICE
+  python3 "$RUNTIME_WORK/quantum-repair.py" /etc/veraprox/filebrowser-quantum/config.yaml /var/lib/veraprox/quantum-root "$RUNTIME_WORK/veraprox-filebrowser.service"
+  install -m 644 "$RUNTIME_WORK/veraprox-filebrowser.service" /etc/systemd/system/veraprox-filebrowser.service
 elif command -v filebrowser >/dev/null && [ -f /etc/filebrowser/filebrowser.db ]; then
   # Compatibilità per chi aggiorna il solo runtime senza chiedere la migrazione.
   FILEBROWSER_BINARY=$(command -v filebrowser)

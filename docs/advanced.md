@@ -13,7 +13,9 @@ L'installer Quantum usa il binario ufficiale v1.5.6-stable con checksum fissato.
 
 Il backup Quantum contiene configurazione e database precedenti, binari e unit systemd. Il vecchio binario FileBrowser e `/etc/filebrowser` non vengono eliminati. Per tornare al precedente servizio, a volume smontato, ripristina `veraprox-filebrowser.service` dal backup Quantum indicato dall'installer e poi esegui `systemctl daemon-reload`. Non avviare due file manager sulla stessa porta. Una successiva esecuzione dell'updater privilegia nuovamente Quantum se la sua configurazione è presente.
 
-I backup possono contenere credenziali vecchie e metadati; il database account e i log di sistema sono sul disco Debian, fuori da VeraCrypt. Cifrare il volume non cifra automaticamente tutto il sistema o la memoria. Quantum gira ancora come root per accedere al volume: usa account fidati. Il servizio limita le scritture al volume e alla propria configurazione, ma non è un isolamento completo del filesystem.
+I backup possono contenere credenziali vecchie e metadati; il database account e i log di sistema sono sul disco Debian, fuori da VeraCrypt. Cifrare il volume non cifra automaticamente tutto il sistema o la memoria. Quantum gira ancora come root per accedere al volume: usa account fidati. Il servizio usa `RootDirectory` e bind espliciti: vede il volume, il proprio database e i binari/librerie/file di sistema necessari, non l'intero filesystem Debian; le capability vengono rimosse e i dispositivi fisici e `/proc` non sono esposti. È una protezione aggiuntiva, non una garanzia contro vulnerabilità del programma o del kernel. Il controllo VeraCrypt pre-avvio rimane fuori dall'isolamento.
+
+Non aggiungere `folderPath: /` alle regole Quantum v1.5.6: anche con `ignoreSymlinks` interferisce con gli attributi delle sottocartelle e produce `hasPreview: false`. I collegamenti interni al volume possono restare visibili; quelli verso file Debian non resi disponibili nella root isolata non possono accedere ai corrispondenti file host. Non disabilitare l'isolamento per risolvere un errore di avvio: controlla il journal. Configurazioni o override systemd personalizzati richiedono una verifica separata.
 
 ## Montaggio
 
@@ -45,4 +47,6 @@ bash -n post-install-veracrypt.sh
 bash -n install-filebrowser-quantum.sh
 ```
 
-Il test opzionale del binario Quantum si attiva con `VERAPROX_QUANTUM_TEST_BINARY=/percorso/binario`. Avvia solo un server localhost con cartella vuota, verifica impostazione password/login e assenza della password scelta in chiaro nel DB e nei log. Gli altri test simulano dispositivi e comandi: systemd, mount VeraCrypt e cache NTFS vanno provati sulla macchina Debian.
+Il test opzionale del binario Quantum si attiva con `VERAPROX_QUANTUM_TEST_BINARY=/percorso/binario`. Avvia solo un server localhost con media sintetici: verifica password/login dopo riavvio, vista `gallery`, disponibilità e risposta dell'anteprima in una sottocartella ed esclusione delle directory private. Gli altri test simulano dispositivi e comandi: mount VeraCrypt e cache NTFS vanno provati sulla macchina Debian.
+
+L'updater verifica il nuovo isolamento **sulla macchina Debian prima di sostituire il servizio**: avvia un'unità systemd temporanea su localhost con DB separato, PNG e MP4 sintetici, controlla entrambe le anteprime e il rifiuto di un collegamento verso un'immagine esterna. La prova non monta né legge il volume reale e non usa credenziali esistenti. Il servizio di prova viene fermato e i file temporanei rimossi. Se fallisce, l'updater si interrompe senza applicare la riparazione del servizio; il journal della prova resta consultabile. Questo controllo non equivale a un audit di tutte le API.

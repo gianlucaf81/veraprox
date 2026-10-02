@@ -45,7 +45,7 @@ Scegli la password web e se installare Quantum. La password Quantum deve avere 8
 4. Apri Quantum su `http://IP-DEBIAN:8080`: utente `admin`, password scelta per Quantum.
 5. Per rimuovere il disco usa **Smonta volume**: Quantum viene fermato prima dello smontaggio.
 
-Quantum mostra le miniature in modalità griglia e anteprime animate al passaggio del mouse. La prima generazione può richiedere tempo; le miniature non garantiscono che ogni codec video sia riproducibile dal browser. Cache, indice e temporanei sono in `/mnt/secure/.veraprox-quantum`, esclusa dalla navigazione. Non cancellarla mentre Quantum è in esecuzione.
+Quantum mostra le miniature in modalità Galleria (`gallery`) e anteprime animate al passaggio del mouse. La prima generazione può richiedere tempo; le miniature non garantiscono che ogni codec video sia riproducibile dal browser. Cache, indice e temporanei sono in `/mnt/secure/.veraprox-quantum`, esclusa dalla navigazione. Non cancellarla mentre Quantum è in esecuzione.
 
 In alternativa, dal terminale:
 
@@ -67,7 +67,7 @@ La password web e il dispositivo restano invariati. Viene chiesta una **nuova pa
 
 Script/configurazione precedenti e FileBrowser sono conservati in backup privati sotto `/var/backups/veraprox-*`, con percorso mostrato a schermo. Se Quantum è già configurato, l'account viene conservato; la configurazione gestita da VeraProx viene rigenerata. Dopo l'aggiornamento monta il disco e apri la porta 8080.
 
-Per aggiornare **solo il runtime**, senza installare Quantum, usa lo stesso comando senza `-- --install-quantum`.
+Per aggiornare **solo il runtime**, senza reinstallare Quantum, usa lo stesso comando senza `-- --install-quantum`. Questo ripara anche la vecchia regola che impediva le miniature nelle sottocartelle e aggiorna il servizio, conservando account e dati. Eseguilo sempre a volume smontato.
 
 ## Sicurezza e problemi
 

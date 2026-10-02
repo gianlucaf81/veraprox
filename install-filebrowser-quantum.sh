@@ -75,13 +75,13 @@ def configuration(database, cache, source='/mnt/secure', port=8080, listen='0.0.
             'sources': [{'path': str(source), 'name': 'Volume', 'config': {
                 'defaultEnabled': True, 'defaultUserScope': '/', 'private': True,
                 'rules': [{'folderName': '.veraprox-quantum'},
-                          {'folderName': '@eaDir'}, {'folderPath': '/', 'ignoreSymlinks': True}]
+                          {'folderName': '@eaDir'}]
             }}]
         },
         'auth': {'adminUsername': 'admin', 'methods': {
             'password': {'enabled': True, 'signup': False, 'minLength': 8}, 'noauth': False}},
         'userDefaults': {
-            'listing': {'viewMode': 'grid'}, 'ui': {'locale': 'it'},
+            'listing': {'viewMode': 'gallery'}, 'ui': {'locale': 'it'},
             'preview': {'image': True, 'video': True, 'motionVideoPreview': True}
         },
         'integrations': {'media': {'ffmpegPath': '/usr/bin', 'debug': False}}
