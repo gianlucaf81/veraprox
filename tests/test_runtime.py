@@ -212,6 +212,22 @@ class WebTests(unittest.TestCase):
         self.login()
         self.assertIn(b'/dev/disk/by-id/selected', self.client.get('/').data)
 
+    def test_original_logo_is_public_and_used_for_header_and_favicon(self):
+        logo = ROOT / 'assets' / 'veraprox-logo.png'
+        with patch.object(runtime, 'WEB_LOGO', logo):
+            response = self.client.get('/veraprox-logo.png')
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.mimetype, 'image/png')
+            self.assertEqual(response.data, logo.read_bytes())
+            response.close()
+        for authenticated in (False, True):
+            if authenticated:
+                self.login()
+            html = self.client.get('/').get_data(as_text=True)
+            self.assertIn('<title>VeraProx</title>', html)
+            self.assertIn('rel="icon" type="image/png" href="/veraprox-logo.png"', html)
+            self.assertIn('class="brand-logo" src="/veraprox-logo.png" width="36" height="36"', html)
+
     def test_missing_csrf_prevents_mount_even_when_logged_in(self):
         self.login()
         with patch.object(runtime, 'mount_volume') as mount:

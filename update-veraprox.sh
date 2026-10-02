@@ -22,6 +22,18 @@ esac
 
 RUNTIME_WORK=$(mktemp -d)
 trap 'rm -rf -- "$RUNTIME_WORK"' EXIT
+# Usa il logo originale, verificato prima di modificare il servizio web.
+WEB_LOGO_SHA256=05d74bbb74d8690b0a90184240e211cf5f732b98b443fc9a6f6bf3f9f2ce26ec
+WEB_LOCAL_DIR=""
+if [ -f "${BASH_SOURCE[0]:-}" ]; then
+  WEB_LOCAL_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+fi
+if [ -n "$WEB_LOCAL_DIR" ] && [ -f "$WEB_LOCAL_DIR/assets/veraprox-logo.png" ]; then
+  cp -- "$WEB_LOCAL_DIR/assets/veraprox-logo.png" "$RUNTIME_WORK/veraprox-logo.png"
+else
+  curl -fsSL --retry 3 https://raw.githubusercontent.com/gianlucaf81/veraprox/main/assets/veraprox-logo.png -o "$RUNTIME_WORK/veraprox-logo.png"
+fi
+python3 -c 'import hashlib,pathlib,sys; actual=hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest(); sys.exit(0 if actual == sys.argv[2] else "Checksum del logo non valido: aggiornamento annullato.")' "$RUNTIME_WORK/veraprox-logo.png" "$WEB_LOGO_SHA256"
 BACKUP_DIR=$(mktemp -d /var/backups/veraprox-XXXXXXXX)
 for runtime_file in /usr/local/bin/mount-secure.sh /usr/local/bin/umount-secure.sh /usr/local/bin/secure-webapp.py /usr/local/bin/veraprox-device.sh /usr/local/bin/veraprox-immich.sh /usr/local/lib/veraprox/runtime.py /etc/systemd/system/secure-webapp.service /etc/systemd/system/veraprox-filebrowser.service; do
   if [ -f "$runtime_file" ]; then
@@ -110,6 +122,7 @@ FILEBROWSER_SERVICE = 'veraprox-filebrowser.service'
 QUANTUM_CONFIG = CONFIG_DIR / 'filebrowser-quantum' / 'config.yaml'
 LOCK_PATH = '/run/lock/veraprox.lock'
 RUN_DIR = Path('/run/veraprox')
+WEB_LOGO = Path('/usr/local/share/veraprox/veraprox-logo.png')
 
 
 class VolumeError(Exception):
@@ -525,7 +538,7 @@ def configure_cli(device=None):
 
 
 def create_web_app():
-    from flask import Flask, jsonify, redirect, render_template_string, request, session, url_for
+    from flask import Flask, jsonify, redirect, render_template_string, request, send_file, session, url_for
     from werkzeug.security import check_password_hash
     app = Flask(__name__)
     app.secret_key = secrets.token_bytes(32)
@@ -547,7 +560,7 @@ def create_web_app():
             token = session.get('csrf', '')
             if not token or not secrets.compare_digest(token, request.form.get('csrf', '')):
                 return 'Richiesta non valida. Ricarica la pagina.', 400
-        if request.path != '/' and request.path != '/login' and not session.get('authenticated'):
+        if request.path not in ('/', '/login', '/veraprox-logo.png') and not session.get('authenticated'):
             return redirect(url_for('home'))
 
     def page(error=None):
@@ -574,6 +587,11 @@ def create_web_app():
     @app.get('/')
     def home():
         return page()
+
+    @app.get('/veraprox-logo.png')
+    def web_logo():
+        # Un solo asset pubblico, non una directory di file navigabile.
+        return send_file(WEB_LOGO, mimetype='image/png', max_age=86400)
 
     @app.post('/login')
     def login():
@@ -643,11 +661,12 @@ def create_web_app():
 
 HTML = '''<!DOCTYPE html>
 <html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>VeraProx</title><style>
+<title>VeraProx</title><link rel="icon" type="image/png" href="{{ url_for('web_logo') }}"><style>
 *{box-sizing:border-box}body{font-family:system-ui,sans-serif;background:linear-gradient(135deg,#667eea,#764ba2);margin:0;min-height:100vh;padding:12px;display:grid;place-items:center}
 main{background:white;border-radius:16px;padding:20px;width:100%;max-width:450px}h1{text-align:center;font-size:1.5rem;margin:0 0 14px}input,select,button{font:inherit;width:100%;padding:10px;border-radius:8px;margin:5px 0;border:1px solid #ccc}button{cursor:pointer;background:#2863ba;color:white;border:0}.danger{background:#b52c3a}.mount{background:#218838}.muted{color:#555;font-size:.85rem}.message{padding:10px;border-radius:8px;background:#eef1f5;margin:10px 0}.error{background:#f8d7da}.success{background:#d4edda}.device{overflow-wrap:anywhere;font-family:monospace;font-size:.8rem;margin:6px 0}details{margin:10px 0}summary{cursor:pointer;font-size:.9rem}label{display:block;margin-top:6px}.check input{width:auto}li{overflow-wrap:anywhere}a{color:#2455a5}
 .logs{background:#f8f9fa;border-radius:8px;padding:10px;margin:14px 0 8px}.log-header{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:.85rem}.clear-log{width:auto;padding:5px 8px;margin:0;font-size:.75rem;background:#6c757d}.log-list{list-style:none;padding:0;margin:8px 0 0;min-height:48px;max-height:160px;overflow-y:auto;font:12px/1.5 monospace}.log-list li{padding:4px 0;border-bottom:1px solid #e7e7e7}
-</style></head><body><main><h1>VeraProx</h1>
+h1{display:flex;align-items:center;justify-content:center;gap:10px}.brand-logo{display:block;width:36px;height:36px;border-radius:8px;flex-shrink:0}
+</style></head><body><main><h1><img class="brand-logo" src="{{ url_for('web_logo') }}" width="36" height="36" alt="">VeraProx</h1>
 {% if error %}<p class="message error">{{ error }}</p>{% endif %}
 {% if session.authenticated %}
 <p class="message {{ 'success' if mounted else '' }}">Volume {{ 'montato' if mounted else 'smontato' }}</p>
@@ -777,6 +796,8 @@ for proc in Path('/proc').iterdir():
 STOPLEGACYPY
 install -m 600 "$RUNTIME_WORK/web.json" /etc/veraprox/web.json
 install -m 644 "$RUNTIME_WORK/runtime.py" /usr/local/lib/veraprox/runtime.py
+install -d -m 755 /usr/local/share/veraprox
+install -m 644 "$RUNTIME_WORK/veraprox-logo.png" /usr/local/share/veraprox/veraprox-logo.png
 
 cat > /usr/local/bin/mount-secure.sh <<'MOUNTCLI'
 #!/usr/bin/env bash
