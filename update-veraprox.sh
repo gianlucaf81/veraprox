@@ -604,14 +604,15 @@ def create_web_app():
 HTML = '''<!DOCTYPE html>
 <html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VeraProx</title><style>
-*{box-sizing:border-box}body{font-family:system-ui,sans-serif;background:linear-gradient(135deg,#667eea,#764ba2);margin:0;min-height:100vh;padding:24px;display:grid;place-items:center}
-main{background:white;border-radius:16px;padding:24px;width:100%;max-width:540px}h1{text-align:center}input,select,button{font:inherit;width:100%;padding:12px;border-radius:8px;margin:6px 0;border:1px solid #ccc}button{cursor:pointer;background:#2863ba;color:white;border:0}.danger{background:#b52c3a}.mount{background:#218838}.muted{color:#555;font-size:.9rem}.message{padding:12px;border-radius:8px;background:#eef1f5}.error{background:#f8d7da}.success{background:#d4edda}.device{overflow-wrap:anywhere;font-family:monospace;font-size:.85rem}details{margin:16px 0}label{display:block;margin-top:8px}.check input{width:auto}li{overflow-wrap:anywhere}a{color:#2455a5}
+*{box-sizing:border-box}body{font-family:system-ui,sans-serif;background:linear-gradient(135deg,#667eea,#764ba2);margin:0;min-height:100vh;padding:12px;display:grid;place-items:center}
+main{background:white;border-radius:16px;padding:20px;width:100%;max-width:450px}h1{text-align:center;font-size:1.5rem;margin:0 0 14px}input,select,button{font:inherit;width:100%;padding:10px;border-radius:8px;margin:5px 0;border:1px solid #ccc}button{cursor:pointer;background:#2863ba;color:white;border:0}.danger{background:#b52c3a}.mount{background:#218838}.muted{color:#555;font-size:.85rem}.message{padding:10px;border-radius:8px;background:#eef1f5;margin:10px 0}.error{background:#f8d7da}.success{background:#d4edda}.device{overflow-wrap:anywhere;font-family:monospace;font-size:.8rem;margin:6px 0}details{margin:10px 0}summary{cursor:pointer;font-size:.9rem}label{display:block;margin-top:6px}.check input{width:auto}li{overflow-wrap:anywhere}a{color:#2455a5}
+.logs{background:#f8f9fa;border-radius:8px;padding:10px;margin:14px 0 8px}.log-header{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:.85rem}.clear-log{width:auto;padding:5px 8px;margin:0;font-size:.75rem;background:#6c757d}.log-list{list-style:none;padding:0;margin:8px 0 0;min-height:48px;max-height:160px;overflow-y:auto;font:12px/1.5 monospace}.log-list li{padding:4px 0;border-bottom:1px solid #e7e7e7}
 </style></head><body><main><h1>VeraProx</h1>
 {% if error %}<p class="message error">{{ error }}</p>{% endif %}
 {% if success %}<p class="message success">{{ success }}</p>{% endif %}
 {% if session.authenticated %}
 <p class="message {{ 'success' if mounted else '' }}">Volume {{ 'montato' if mounted else 'smontato' }}</p>
-<p class="muted">Dispositivo configurato:</p><p class="device">{{ device or 'Nessuno' }}</p>
+<p class="device" title="Dispositivo configurato">{{ device or 'Dispositivo non configurato' }}</p>
 {% if mounted %}
 {% if filebrowser %}<p><a id="filebrowser-link" target="_blank" rel="noopener">Apri FileBrowser</a></p>{% endif %}
 <form method="post" action="/unmount"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button class="danger">Smonta volume</button></form>
@@ -624,17 +625,45 @@ main{background:white;border-radius:16px;padding:24px;width:100%;max-width:540px
 <button>Salva dispositivo</button></form></details>
 {% if device %}<form method="post" action="/mount"><input type="hidden" name="csrf" value="{{ session.csrf }}">
 <label>Password VeraCrypt<input type="password" name="password" required autocomplete="off"></label>
-<label>PIM (0 per il valore predefinito)<input type="number" name="pim" min="0" max="9999999" value="0" required></label>
-<label class="check"><input type="checkbox" name="readonly" value="yes"> Monta in sola lettura (senza avviare i servizi)</label>
-<p class="muted">Per keyfile o protezione di un volume nascosto all’interno del volume esterno, usa il montaggio da terminale. Non montare il volume esterno in scrittura da questa pagina se contiene un volume nascosto da proteggere.</p>
+<details><summary>Opzioni avanzate</summary>
+<label>PIM<input type="number" name="pim" min="0" max="9999999" value="0" required></label>
+<p class="muted">Lascia 0 se non hai impostato un PIM personalizzato quando hai creato il volume.</p>
+<label class="check"><input type="checkbox" name="readonly" value="yes"> Sola lettura (senza avviare i servizi)</label></details>
+<p class="muted">Keyfile o volume nascosto da proteggere? Usa il terminale.</p>
 <button class="mount">Monta volume</button></form>{% endif %}
 {% endif %}
-<details><summary>Log operazioni</summary><ul>{% for log in logs %}<li>{{ log.timestamp }} — {{ log.message }}</li>{% endfor %}</ul>
-<form method="post" action="/clear-log"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button>Pulisci log</button></form></details>
+<section class="logs" aria-label="Log operazioni"><div class="log-header"><span>Log operazioni</span>
+<form method="post" action="/clear-log"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button class="clear-log">Pulisci</button></form></div>
+<ul id="log-list" class="log-list" aria-live="polite">{% for log in logs %}<li>{{ log.timestamp }} — {{ log.message }}</li>{% else %}<li class="muted">Nessuna operazione registrata.</li>{% endfor %}</ul></section>
 <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button>Esci</button></form>
 {% else %}<form method="post" action="/login"><input type="hidden" name="csrf" value="{{ session.csrf }}">
 <label>Password amministratore<input type="password" name="admin_password" required autocomplete="current-password"></label><button>Accedi</button></form>{% endif %}
-</main><script>const link=document.getElementById('filebrowser-link');if(link){link.href='http://'+window.location.hostname+':8080';}</script></body></html>'''
+</main><script>
+const link=document.getElementById('filebrowser-link');if(link){link.href='http://'+window.location.hostname+':8080';}
+const logList=document.getElementById('log-list');
+if(logList){
+  let previousLog='';
+  let refreshing=false;
+  async function refreshLog(){
+    if(refreshing||document.hidden)return;
+    refreshing=true;
+    try{
+      const response=await fetch('/get-log',{cache:'no-store'});
+      if(!response.ok||!response.headers.get('content-type')?.includes('application/json'))return;
+      const data=await response.json();
+      const snapshot=JSON.stringify(data.logs);
+      if(snapshot===previousLog)return;
+      previousLog=snapshot;
+      const fragment=document.createDocumentFragment();
+      for(const log of data.logs){const row=document.createElement('li');row.textContent=log.timestamp+' — '+log.message;fragment.append(row);}
+      if(!data.logs.length){const row=document.createElement('li');row.className='muted';row.textContent='Nessuna operazione registrata.';fragment.append(row);}
+      logList.replaceChildren(fragment);
+    }catch(error){/* Mantieni visibili le ultime operazioni se la rete non risponde. */}
+    finally{refreshing=false;}
+  }
+  setInterval(refreshLog,3000);
+}
+</script></body></html>'''
 
 
 def main():
