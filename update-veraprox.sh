@@ -510,7 +510,7 @@ def create_web_app():
         if request.path != '/' and request.path != '/login' and not session.get('authenticated'):
             return redirect(url_for('home'))
 
-    def page(error=None, success=None):
+    def page(error=None):
         session.setdefault('csrf', secrets.token_urlsafe(32))
         device = ''
         items = []
@@ -527,7 +527,7 @@ def create_web_app():
                     error = error or str(exc)
         with log_lock:
             entries = list(reversed(logs[-20:])) if authenticated else []
-        return render_template_string(HTML, error=error, success=success, device=device,
+        return render_template_string(HTML, error=error, device=device,
                                       mounted=os.path.ismount(MOUNTPOINT), candidates=items,
                                       filebrowser=filebrowser_installed(), logs=entries)
 
@@ -563,7 +563,7 @@ def create_web_app():
         try:
             message = function()
             add_log(message)
-            return page(success=message)
+            return page()
         except (VolumeError, OSError, ValueError, configparser.Error) as exc:
             # Non riporta exception subprocess contenenti stdin o credenziali.
             message = str(exc) if isinstance(exc, VolumeError) else 'Configurazione non valida o operazione non disponibile.'
@@ -609,7 +609,6 @@ main{background:white;border-radius:16px;padding:20px;width:100%;max-width:450px
 .logs{background:#f8f9fa;border-radius:8px;padding:10px;margin:14px 0 8px}.log-header{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:.85rem}.clear-log{width:auto;padding:5px 8px;margin:0;font-size:.75rem;background:#6c757d}.log-list{list-style:none;padding:0;margin:8px 0 0;min-height:48px;max-height:160px;overflow-y:auto;font:12px/1.5 monospace}.log-list li{padding:4px 0;border-bottom:1px solid #e7e7e7}
 </style></head><body><main><h1>VeraProx</h1>
 {% if error %}<p class="message error">{{ error }}</p>{% endif %}
-{% if success %}<p class="message success">{{ success }}</p>{% endif %}
 {% if session.authenticated %}
 <p class="message {{ 'success' if mounted else '' }}">Volume {{ 'montato' if mounted else 'smontato' }}</p>
 <p class="device" title="Dispositivo configurato">{{ device or 'Dispositivo non configurato' }}</p>
