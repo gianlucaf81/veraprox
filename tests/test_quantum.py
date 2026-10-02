@@ -114,6 +114,7 @@ class QuantumTests(unittest.TestCase):
         self.assertEqual(properties['PrivateDevices'], 'true')
         self.assertEqual(properties['InaccessiblePaths'], '-/proc -/sys')
         self.assertIn('/usr/bin/ffmpeg', properties['BindReadOnlyPaths'])
+        self.assertIn('-/etc/alternatives', properties['BindReadOnlyPaths'])
         self.assertIn('-/etc/ssl/certs', properties['BindReadOnlyPaths'])
         self.assertNotIn('ExecStartPre', properties)
         self.assertNotIn('BindPaths', properties)

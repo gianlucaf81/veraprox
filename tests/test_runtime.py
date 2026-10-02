@@ -296,6 +296,24 @@ class ImmichTests(unittest.TestCase):
 
 
 class InstallerTests(unittest.TestCase):
+    def test_failure_cleanup_restores_previously_running_web_and_preserves_exit_code(self):
+        body = SCRIPT.split('cleanup_runtime() {\n', 1)[1].split('\n}\n', 1)[0]
+        bash = 'C:/Program Files/Git/bin/bash.exe' if sys.platform == 'win32' else 'bash'
+        for restart_needed in (0, 1):
+            script = '''
+systemctl() { printf 'service:%s %s\\n' "$1" "$2"; }
+rm() { printf 'cleanup\\n'; }
+RUNTIME_WORK=/unused/mock
+WEB_RESTART_NEEDED=''' + str(restart_needed) + '\ncleanup_runtime() {\n' + body + '''
+}
+trap cleanup_runtime EXIT
+exit 1
+'''
+            result = subprocess.run([bash, '-c', script], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn('cleanup', result.stdout)
+            self.assertEqual('service:start secure-webapp.service' in result.stdout, bool(restart_needed))
+
     def test_embedded_python_blocks_compile(self):
         for delimiter in ('MIGRATEPY', 'RUNTIMEPY', 'STOPLEGACYPY', 'HEALTHPY'):
             source = SCRIPT.split("<<'" + delimiter + "'\n", 1)[1].split('\n' + delimiter + '\n', 1)[0]

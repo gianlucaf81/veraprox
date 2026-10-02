@@ -21,7 +21,16 @@ case "${1:-}" in
 esac
 
 RUNTIME_WORK=$(mktemp -d)
-trap 'rm -rf -- "$RUNTIME_WORK"' EXIT
+WEB_RESTART_NEEDED=0
+cleanup_runtime() {
+  local runtime_exit=$?
+  if [ "$WEB_RESTART_NEEDED" -eq 1 ]; then
+    systemctl start secure-webapp.service || echo 'Riavvio web non riuscito: controlla systemctl status secure-webapp.' >&2
+  fi
+  rm -rf -- "$RUNTIME_WORK"
+  return "$runtime_exit"
+}
+trap cleanup_runtime EXIT
 # Usa il logo originale, verificato prima di modificare il servizio web.
 WEB_LOGO_SHA256=05d74bbb74d8690b0a90184240e211cf5f732b98b443fc9a6f6bf3f9f2ce26ec
 WEB_LOCAL_DIR=""
@@ -778,6 +787,9 @@ if __name__ == '__main__':
 RUNTIMEPY
 
 python3 -m py_compile "$RUNTIME_WORK/runtime.py"
+if systemctl is-active --quiet secure-webapp.service; then
+  WEB_RESTART_NEEDED=1
+fi
 systemctl stop secure-webapp.service 2>/dev/null || true
 # Ferma soltanto i vecchi FileBrowser avviati sul mountpoint di VeraProx.
 python3 - <<'STOPLEGACYPY'
@@ -1025,6 +1037,8 @@ RootDirectory=/var/lib/veraprox/quantum-root
 RootDirectoryStartOnly=true
 BindPaths=/mnt/secure /etc/veraprox/filebrowser-quantum
 BindReadOnlyPaths=/usr/local/bin/filebrowser-quantum /usr/bin/ffmpeg /usr/bin/ffprobe /usr/lib /lib -/lib64
+# BLAS/LAPACK usano collegamenti gestiti dalle alternative Debian.
+BindReadOnlyPaths=-/etc/alternatives
 BindReadOnlyPaths=-/etc/ld.so.cache -/etc/localtime -/etc/passwd -/etc/group -/etc/nsswitch.conf -/etc/hosts -/etc/resolv.conf -/etc/ssl/certs
 BindReadOnlyPaths=-/etc/fonts -/usr/share/fonts -/usr/share/fontconfig
 Environment=TMPDIR=/mnt/secure/.veraprox-quantum/tmp
@@ -1102,6 +1116,7 @@ for _ in range(20):
 else:
     raise SystemExit('La web app non risponde: controlla journalctl -u secure-webapp.')
 HEALTHPY
+WEB_RESTART_NEEDED=0
 echo "Runtime aggiornato. Credenziali web conservate; volume non montato."
 echo "Configura il disco dalla pagina web oppure con: veraprox-device.sh"
 echo "Montaggio: mount-secure.sh | Smontaggio: umount-secure.sh"
