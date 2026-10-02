@@ -332,24 +332,45 @@ def prepare_quantum():
             raise VolumeError('Directory Quantum fuori dal volume.')
 
 
+def filebrowser_status():
+    if not filebrowser_installed():
+        return 'not-installed'
+    if not os.path.ismount(MOUNTPOINT):
+        return 'stopped'
+    try:
+        result = command(['systemctl', 'show', '--property=ActiveState', '--value', FILEBROWSER_SERVICE],
+                         check=False, timeout=3)
+        if result.returncode:
+            return 'unknown'
+        active = result.stdout.strip()
+        if active in ('activating', 'reloading'):
+            return 'starting'
+        if active != 'active':
+            return 'failed' if active == 'failed' else 'stopped'
+        from urllib.request import build_opener, ProxyHandler
+        # Il controllo locale non deve passare attraverso un eventuale proxy.
+        address = 'http://127.0.0.1:8080/' + ('health' if QUANTUM_CONFIG.exists() else '')
+        with build_opener(ProxyHandler({})).open(address, timeout=1) as response:
+            if response.status == 200:
+                return 'ready'
+    except OSError:
+        return 'starting'
+    except VolumeError:
+        return 'unknown'
+    return 'starting'
+
+
 def start_filebrowser():
-    if filebrowser_installed():
-        quantum = QUANTUM_CONFIG.exists()
-        if quantum:
-            prepare_quantum()
-        command(['systemctl', 'start', FILEBROWSER_SERVICE])
-        for _ in range(60):
-            if command(['systemctl', 'is-active', '--quiet', FILEBROWSER_SERVICE], check=False).returncode == 0:
-                # Verifica che il processo HTTP risponda, non soltanto lo stato systemd.
-                from urllib.request import urlopen
-                try:
-                    with urlopen('http://127.0.0.1:8080/' + ('health' if quantum else ''), timeout=1) as response:
-                        if response.status == 200:
-                            return
-                except OSError:
-                    pass
-            time.sleep(0.25)
-        raise VolumeError('Volume montato, ma FileBrowser non risponde. Controlla journalctl -u veraprox-filebrowser.')
+    if not filebrowser_installed():
+        return True
+    if QUANTUM_CONFIG.exists():
+        prepare_quantum()
+    command(['systemctl', 'start', FILEBROWSER_SERVICE])
+    state = filebrowser_status()
+    if state in ('failed', 'stopped'):
+        raise VolumeError('Volume montato, ma FileBrowser non si è avviato. Controlla journalctl -u veraprox-filebrowser.')
+    # Un processo ancora in inizializzazione non è un errore: la pagina continua a verificarlo.
+    return state == 'ready'
 
 
 def immich_settings():
@@ -466,8 +487,10 @@ def mount_volume(password=None, pim='0', readonly=False):
         if 'ro' in options:
             # Non avviare applicazioni che scrivono sul volume in sola lettura.
             return 'Volume montato in sola lettura; servizi non avviati.'
-        start_filebrowser()
+        filebrowser_ready = start_filebrowser()
         start_immich()
+        if filebrowser_ready is False:
+            return 'Volume montato; FileBrowser in avvio. Lo stato web si aggiorna automaticamente.'
         return 'Volume montato e servizi configurati avviati.'
 
 
@@ -563,6 +586,17 @@ def create_web_app():
             logs.append({'timestamp': datetime.now().strftime('%H:%M:%S'), 'message': str(message)})
             del logs[:-100]
 
+    def current_status():
+        mounted = os.path.ismount(MOUNTPOINT)
+        state = filebrowser_status() if mounted else 'stopped'
+        text = 'Volume montato' if mounted else 'Volume smontato'
+        labels = {'starting': 'FileBrowser in avvio…', 'ready': 'FileBrowser pronto',
+                  'failed': 'FileBrowser non avviato: controlla il log del servizio',
+                  'stopped': 'FileBrowser non avviato', 'unknown': 'Stato FileBrowser non disponibile'}
+        if mounted and state in labels:
+            text += ' · ' + labels[state]
+        return {'mounted': mounted, 'filebrowser': state, 'text': text}
+
     @app.before_request
     def protect():
         if request.method == 'POST':
@@ -591,7 +625,9 @@ def create_web_app():
             entries = list(reversed(logs[-20:])) if authenticated else []
         return render_template_string(HTML, error=error, device=device,
                                       mounted=os.path.ismount(MOUNTPOINT), candidates=items,
-                                      filebrowser=filebrowser_installed(), logs=entries)
+                                      filebrowser=filebrowser_installed(), logs=entries,
+                                      status=current_status() if authenticated else None,
+                                      service_error=bool(error and error.startswith('Volume montato, ma FileBrowser')))
 
     @app.get('/')
     def home():
@@ -656,8 +692,9 @@ def create_web_app():
 
     @app.get('/get-log')
     def get_log():
+        status = current_status()
         with log_lock:
-            return jsonify(logs=list(reversed(logs[-20:])))
+            return jsonify(logs=list(reversed(logs[-20:])), status=status)
 
     @app.post('/clear-log')
     def clear_log():
@@ -675,10 +712,11 @@ HTML = '''<!DOCTYPE html>
 main{background:white;border-radius:16px;padding:20px;width:100%;max-width:450px}h1{text-align:center;font-size:1.5rem;margin:0 0 14px}input,select,button{font:inherit;width:100%;padding:10px;border-radius:8px;margin:5px 0;border:1px solid #ccc}button{cursor:pointer;background:#2863ba;color:white;border:0}.danger{background:#b52c3a}.mount{background:#218838}.muted{color:#555;font-size:.85rem}.message{padding:10px;border-radius:8px;background:#eef1f5;margin:10px 0}.error{background:#f8d7da}.success{background:#d4edda}.device{overflow-wrap:anywhere;font-family:monospace;font-size:.8rem;margin:6px 0}details{margin:10px 0}summary{cursor:pointer;font-size:.9rem}label{display:block;margin-top:6px}.check input{width:auto}li{overflow-wrap:anywhere}a{color:#2455a5}
 .logs{background:#f8f9fa;border-radius:8px;padding:10px;margin:14px 0 8px}.log-header{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:.85rem}.clear-log{width:auto;padding:5px 8px;margin:0;font-size:.75rem;background:#6c757d}.log-list{list-style:none;padding:0;margin:8px 0 0;min-height:48px;max-height:160px;overflow-y:auto;font:12px/1.5 monospace}.log-list li{padding:4px 0;border-bottom:1px solid #e7e7e7}
 h1{display:flex;align-items:center;justify-content:center;gap:10px}.brand-logo{display:block;width:36px;height:36px;border-radius:8px;flex-shrink:0}
+button:disabled{cursor:wait;opacity:.8}.spinner{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;margin-right:8px;vertical-align:-2px;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 </style></head><body><main><h1><img class="brand-logo" src="{{ url_for('web_logo') }}" width="36" height="36" alt="">VeraProx</h1>
-{% if error %}<p class="message error">{{ error }}</p>{% endif %}
+{% if error %}<p class="message error" {% if service_error %}data-service-error="filebrowser"{% endif %}>{{ error }}</p>{% endif %}
 {% if session.authenticated %}
-<p class="message {{ 'success' if mounted else '' }}">Volume {{ 'montato' if mounted else 'smontato' }}</p>
+<p id="volume-status" class="message {{ 'success' if mounted else '' }}" data-mounted="{{ 'yes' if mounted else 'no' }}" role="status" aria-live="polite">{{ status.text }}</p>
 <p class="device" title="Dispositivo configurato">{{ device or 'Dispositivo non configurato' }}</p>
 {% if mounted %}
 {% if filebrowser %}<p><a id="filebrowser-link" target="_blank" rel="noopener">Apri FileBrowser</a></p>{% endif %}
@@ -707,17 +745,44 @@ h1{display:flex;align-items:center;justify-content:center;gap:10px}.brand-logo{d
 <label>Password amministratore<input type="password" name="admin_password" required autocomplete="current-password"></label><button>Accedi</button></form>{% endif %}
 </main><script>
 const link=document.getElementById('filebrowser-link');if(link){link.href='http://'+window.location.hostname+':8080';}
+const statusLine=document.getElementById('volume-status');
+let operationBusy=false;
+for(const form of document.querySelectorAll('form[action="/mount"],form[action="/unmount"]')){
+  form.addEventListener('submit',event=>{
+    if(operationBusy){event.preventDefault();return;}
+    operationBusy=true;
+    form.setAttribute('aria-busy','true');
+    const mounting=form.getAttribute('action')==='/mount';
+    const text=mounting?'Montaggio in corso…':'Smontaggio in corso…';
+    const button=form.querySelector('button');
+    const spinner=document.createElement('span');spinner.className='spinner';spinner.setAttribute('aria-hidden','true');
+    button.replaceChildren(spinner,document.createTextNode(text));
+    for(const control of document.querySelectorAll('button'))control.disabled=true;
+    if(statusLine){statusLine.className='message';statusLine.textContent=text+' Attendi il completamento.';}
+    // Non disabilitare gli input: password e CSRF devono essere inviati normalmente.
+  });
+}
+function refreshStatus(status){
+  if(!statusLine||operationBusy)return;
+  if(status.mounted!==(statusLine.dataset.mounted==='yes')){window.location.replace('/');return;}
+  statusLine.className='message'+(status.mounted?' success':'');
+  statusLine.textContent=status.text;
+  if(status.filebrowser==='ready'){
+    document.querySelector('[data-service-error="filebrowser"]')?.remove();
+  }
+}
 const logList=document.getElementById('log-list');
 if(logList){
   let previousLog='';
   let refreshing=false;
   async function refreshLog(){
-    if(refreshing||document.hidden)return;
+    if(refreshing||document.hidden||operationBusy)return;
     refreshing=true;
     try{
       const response=await fetch('/get-log',{cache:'no-store'});
       if(!response.ok||!response.headers.get('content-type')?.includes('application/json'))return;
       const data=await response.json();
+      refreshStatus(data.status);
       const snapshot=JSON.stringify(data.logs);
       if(snapshot===previousLog)return;
       previousLog=snapshot;
@@ -729,6 +794,7 @@ if(logList){
     finally{refreshing=false;}
   }
   setInterval(refreshLog,3000);
+  refreshLog();
 }
 </script></body></html>'''
 

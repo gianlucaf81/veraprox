@@ -84,6 +84,34 @@ class DeviceTests(unittest.TestCase):
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_slow_filebrowser_reports_pending_instead_of_failure(self):
+        with patch.object(runtime, 'filebrowser_installed', return_value=True), \
+             patch.object(runtime.Path, 'exists', return_value=True), \
+             patch.object(runtime, 'prepare_quantum'), \
+             patch.object(runtime, 'filebrowser_status', return_value='starting'), \
+             patch.object(runtime, 'command') as run:
+            self.assertFalse(runtime.start_filebrowser())
+        run.assert_called_once_with(['systemctl', 'start', runtime.FILEBROWSER_SERVICE])
+        with patch.object(runtime, 'operation_lock', return_value=nullcontext()), \
+             patch.object(runtime, 'load_device'), patch.object(runtime.os.path, 'ismount', return_value=True), \
+             patch.object(runtime, 'check_mounted'), patch.object(runtime, 'command', return_value=completed('rw')), \
+             patch.object(runtime, 'start_filebrowser', return_value=False), patch.object(runtime, 'start_immich'):
+            self.assertIn('FileBrowser in avvio', runtime.mount_volume('password'))
+
+    def test_filebrowser_status_checks_http_and_detects_real_failure(self):
+        with patch.object(runtime, 'filebrowser_installed', return_value=True), \
+             patch.object(runtime.os.path, 'ismount', return_value=True), \
+             patch.object(runtime.Path, 'exists', return_value=True), \
+             patch.object(runtime, 'command', return_value=completed('active\n')) as run, \
+             patch('urllib.request.build_opener') as opener:
+            opener.return_value.open.side_effect = OSError('Still starting')
+            self.assertEqual(runtime.filebrowser_status(), 'starting')
+            opener.return_value.open.side_effect = None
+            opener.return_value.open.return_value.__enter__.return_value.status = 200
+            self.assertEqual(runtime.filebrowser_status(), 'ready')
+            run.return_value = completed('failed\n')
+            self.assertEqual(runtime.filebrowser_status(), 'failed')
+
     def test_password_sent_on_stdin_without_shell_or_argument(self):
         password = "p'ass; $(touch /tmp/never) & spaces"
         calls = []
@@ -211,6 +239,26 @@ class WebTests(unittest.TestCase):
         self.assertNotIn(b'/dev/disk/by-id/selected', self.client.get('/').data)
         self.login()
         self.assertIn(b'/dev/disk/by-id/selected', self.client.get('/').data)
+
+    def test_status_updates_when_filebrowser_becomes_ready_without_new_logs(self):
+        self.assertEqual(self.client.get('/get-log').status_code, 302)
+        self.login()
+        with patch.object(runtime.os.path, 'ismount', return_value=True), \
+             patch.object(runtime, 'filebrowser_status', return_value='starting') as state:
+            first = self.client.get('/get-log').json
+            self.assertEqual(first['status']['filebrowser'], 'starting')
+            self.assertIn('FileBrowser in avvio', first['status']['text'])
+            state.return_value = 'ready'
+            second = self.client.get('/get-log').json
+        self.assertEqual(second['status']['filebrowser'], 'ready')
+        self.assertIn('FileBrowser pronto', second['status']['text'])
+        self.assertEqual(first['logs'], second['logs'])
+        # Status must refresh even when the operation log has not changed.
+        self.assertLess(runtime.HTML.index('refreshStatus(data.status)'),
+                        runtime.HTML.index('if(snapshot===previousLog)return'))
+        self.assertIn("form.addEventListener('submit'", runtime.HTML)
+        self.assertIn("spinner.className='spinner'", runtime.HTML)
+        self.assertNotIn('input.disabled=true', runtime.HTML)
 
     def test_original_logo_is_public_and_used_for_header_and_favicon(self):
         logo = ROOT / 'assets' / 'veraprox-logo.png'
