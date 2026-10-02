@@ -18,6 +18,23 @@ exec(compile(SOURCE, 'configure_quantum.py', 'exec'), quantum.__dict__)
 
 
 class QuantumTests(unittest.TestCase):
+    def test_apt_does_not_install_recommendations_or_remove_packages(self):
+        self.assertIn('--no-install-recommends --no-remove ca-certificates curl ffmpeg python3', INSTALLER)
+
+    def test_low_disk_space_aborts_before_package_installation(self):
+        source = INSTALLER.split("<<'SPACEPY'\n", 1)[1].split('\nSPACEPY\n', 1)[0]
+        self.assertLess(INSTALLER.index("<<'SPACEPY'"), INSTALLER.index('apt-get update'))
+        with patch('shutil.disk_usage', return_value=types.SimpleNamespace(free=0)), \
+             patch('sys.stderr'), self.assertRaises(SystemExit) as stopped:
+            exec(compile(source, 'space_check.py', 'exec'), {})
+        self.assertEqual(stopped.exception.code, 1)
+
+    def test_space_check_accepts_enough_space(self):
+        source = INSTALLER.split("<<'SPACEPY'\n", 1)[1].split('\nSPACEPY\n', 1)[0]
+        with patch('shutil.disk_usage', return_value=types.SimpleNamespace(free=1024**3)) as usage:
+            exec(compile(source, 'space_check.py', 'exec'), {})
+        self.assertEqual([call.args[0] for call in usage.call_args_list], ['/', '/usr', '/var', '/tmp'])
+
     def test_config_uses_stable_schema_and_encrypted_cache(self):
         config = quantum.configuration('/etc/veraprox/filebrowser-quantum/quantum.db',
                                        '/mnt/secure/.veraprox-quantum/cache')

@@ -34,6 +34,8 @@ PostgreSQL su NTFS/FUSE, exFAT o condivisione NFS/SMB viene rifiutato. Prima di 
 
 ## Test
 
+Se APT si interrompe con `No space left on device`, controlla `df -h / /usr /var /tmp` e `df -i / /usr /var /tmp`. `apt-get clean` elimina soltanto i pacchetti scaricati dalla cache, non i file personali. Dopo aver liberato spazio, completa i pacchetti con `dpkg --configure -a` e, se necessario, `apt-get --no-install-recommends --fix-broken install` (controlla il piano prima di confermare). Non eseguire rimozioni automatiche per recuperare spazio senza verificarne l'elenco. L'installer Quantum ora esclude i pacchetti raccomandati e richiede almeno 512 MiB liberi nei filesystem di sistema; questa è una soglia minima, non una garanzia sullo spazio necessario.
+
 Con Python, Flask e Werkzeug:
 
 ```bash

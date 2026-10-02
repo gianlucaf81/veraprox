@@ -21,12 +21,28 @@ case "$(uname -m)" in
   *) echo "Architettura non supportata." >&2; exit 1 ;;
 esac
 QUANTUM_DIR=/etc/veraprox/filebrowser-quantum
+command -v python3 >/dev/null || { echo "Installa python3 prima di eseguire questo helper." >&2; exit 1; }
+# Soglia minima prudenziale, non una stima esatta del piano APT. Controlla anche
+# filesystem separati: spazio sul disco VeraCrypt non libera spazio in Debian.
+python3 - <<'SPACEPY'
+import shutil
+import sys
+
+minimum = 512 * 1024 * 1024
+for path in ('/', '/usr', '/var', '/tmp'):
+    free = shutil.disk_usage(path).free
+    if free < minimum:
+        print(f'Spazio insufficiente sul filesystem di {path}: {free // (1024 * 1024)} MiB liberi. '
+              'Libera spazio o amplia il disco Debian; servono almeno 512 MiB liberi prima di procedere. '
+              'Verifica anche gli inode con df -i.', file=sys.stderr)
+        sys.exit(1)
+SPACEPY
 QUANTUM_WORK=$(mktemp -d /var/tmp/veraprox-quantum-XXXXXXXX)
 trap 'rm -rf -- "$QUANTUM_WORK"' EXIT
 
 echo "Installazione dipendenze Quantum e FFmpeg..."
 apt-get update -qq
-apt-get install -y -qq ca-certificates curl ffmpeg python3
+apt-get install -y -qq --no-install-recommends --no-remove ca-certificates curl ffmpeg python3
 command -v ffprobe >/dev/null
 
 echo "Download FileBrowser Quantum $QUANTUM_VERSION..."
